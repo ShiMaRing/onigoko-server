@@ -298,7 +298,7 @@ Block Game::Move(int playerId, int direct) {
                         foundKeys++;
                         blocks[x][y].blockType = ROAD;//钥匙消失
                         //可能会更新大门
-                        if (foundKeys >= 4) {
+                        if (foundKeys >= NEEDED_FOUND_KEYS) {
                             isDoorOpen = true;//此时需要更新大门
                         }
                         return blocks[x][y];

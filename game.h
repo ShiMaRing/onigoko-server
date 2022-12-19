@@ -58,6 +58,7 @@ public:
         int x, y;
     } Point;
     int id;        //房间id号
+    string state;  //房间状态
     int width;
     int height;
     int foundKeys;   //找到的钥匙数量

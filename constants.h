@@ -14,26 +14,12 @@
 #include "string"
 
 using namespace std;
-//player常量
+
 const int HUMAN = 0;
 const int GHOST = 1;
-
-
-const int initLighting = 3;
-const int initMines = 1;
-
-
-//地图长宽
-const int GraphWith = 77;
-const int GraphHeight = 41;
-
-//方块类别,六种,用不同的颜色表示即可
 const int ROAD = 2;
 const int BARRIER = 3;
-
-//随机生成地图时使用，表示即将成为陆地
 const int PRE_ROAD = 4;
-//随机生成地图时使用，表示已经确定成为路
 const int CERTAIN_ROAD = 5;
 const int CERTAIN_BARRIER = 6;
 const int MINE = 7;
@@ -41,8 +27,16 @@ const int KEY = 8;
 const int GATE = 9;
 const int DEAD = 10;
 
+
+
+const int initLighting = 3;
+const int initMines = 1;
+const int GraphWith = 77;
+const int GraphHeight = 41;
 const int ALL_KEYS_NUM = 6;
 const int NEEDED_FOUND_KEYS = 4;
+
+
 
 const int UP = 1001;
 const int DOWN = 1002;
@@ -51,7 +45,9 @@ const int RIGHT = 1004;
 
 
 
-
+const int GAME_WAITING=0;
+const int GAME_STARTING=1;
+const int GAME_END=2;
 
 //游戏当前状态
 
