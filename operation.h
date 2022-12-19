@@ -29,6 +29,7 @@ using namespace std;
 
 //客户端服务端沟通消息体
 class Operation {
+public:
     int roomId; //房间号
     int playerId; //用户号
     int operationType; //执行的操作类型
