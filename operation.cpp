@@ -4,3 +4,7 @@
 
 #include "operation.h"
 
+Operation::Operation() {
+    player=vector<Player>();
+    blocks=vector<Block>();
+}

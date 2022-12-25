@@ -2,7 +2,7 @@
 #include "game.h"
 using namespace std;
 //服务器端负责通信，维护状态等操作，启动
-int main() {
+int main_game() {
     Game game;
     game.initGraph();
     for (int i = 0; i < game.height; ++i) {

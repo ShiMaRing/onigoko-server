@@ -21,6 +21,9 @@ void Player::BecomeGhost() {
     identity = GHOST;
 }
 
+Player::Player() {
+}
+
 Block::Block(int blockType) : blockType(blockType) {
     x = 0;
     y = 0;
@@ -178,7 +181,7 @@ bool Game::Lighting(int playerId) {
 }
 
 //埋雷，只有玩家能看到，鬼看不到，
-Block Game::buriedMine(int playerId) {
+Block* Game::buriedMine(int playerId) {
     for (auto &item: players) {
         if (item.id == playerId) {
             //在当前位置埋雷
@@ -186,11 +189,11 @@ Block Game::buriedMine(int playerId) {
             int y = item.y;
             if (blocks[x][y].blockType == MINE || item.mines <= 0 ||
                 item.isDead || item.isEscaped || item.identity == GHOST) {
-                return NULL; //当前位置已经有雷了，禁止埋雷,不需要更新
+                return nullptr; //当前位置已经有雷了，禁止埋雷,不需要更新
             }
             //否则开始埋雷
             blocks[x][y].blockType = MINE;//需要更新状态,
-            return blocks[x][y];
+            return &blocks[x][y];
         }
     }
 }
@@ -222,13 +225,13 @@ bool Game::recoverFromDizziness(int playerId) {
 }
 
 //移动,核心游戏逻辑，一次逻辑单元为某一用户向某一方向移动了一个距离单位
-Block Game::Move(int playerId, int direct) {
+Block* Game::Move(int playerId, int direct) {
     //首先判断用户身份
     for (auto &item: players) {
         if (item.id == playerId) {
             //人已经死亡或者已经逃脱，鬼被晕眩，都不允许移动
             if (item.isDead || item.isEscaped || item.isDizziness) {
-                return NULL;
+                return nullptr;
             }
             int x = item.x;
             int y = item.y;
@@ -247,23 +250,25 @@ Block Game::Move(int playerId, int direct) {
                 case RIGHT:
                     y = y + 1;
                     break;
+                default:
+                    break;
             }
             //检测
             if (blocks[x][y].blockType == BARRIER) {
-                return NULL;
+                return nullptr;
             }
             //碰撞检测
-            for (int i = 0; i < players.size(); ++i) {
-                if (players[i].x == x && players[i].y == y) {
+            for (auto & player : players) {
+                if (player.x == x && player.y == y) {
                     //两个都是人类禁止重叠
-                    if (players[i].identity == HUMAN && identity == HUMAN) {
-                        return NULL;//重叠禁止
-                    } else if (players[i].identity == GHOST && identity == HUMAN) {
+                    if (player.identity == HUMAN && identity == HUMAN) {
+                        return nullptr;//重叠禁止
+                    } else if (player.identity == GHOST && identity == HUMAN) {
                         //人移动主动撞鬼
                         item.isDead = true;
                     } else {
                         //鬼抓到人
-                        players[i].isDead = true;
+                        player.isDead = true;
                     }
                     //更新新的值,客户端需要更新
                     item.x = x;
@@ -277,7 +282,7 @@ Block Game::Move(int playerId, int direct) {
                         isGhostWin = true;
                     }
                     //返回可能出现的死者
-                    return blocks[x][y];
+                    return &blocks[x][y];
                 }
             }
             //更新新的位置
@@ -289,7 +294,7 @@ Block Game::Move(int playerId, int direct) {
                     if (blocks[x][y].blockType == MINE) {
                         item.isDizziness = true;
                         blocks[x][y].blockType = ROAD;//地雷消失
-                        return blocks[x][y];
+                        return &blocks[x][y];
                     }
                     break;
                 case HUMAN:
@@ -301,7 +306,7 @@ Block Game::Move(int playerId, int direct) {
                         if (foundKeys >= NEEDED_FOUND_KEYS) {
                             isDoorOpen = true;//此时需要更新大门
                         }
-                        return blocks[x][y];
+                        return &blocks[x][y];
                     } else if (blocks[x][y].blockType == GATE) {//跑到大门处
                         item.isEscaped = true;
                         escapedNums++;
@@ -309,7 +314,7 @@ Block Game::Move(int playerId, int direct) {
                             isEnd = true;
                             isGhostWin = false;
                         }
-                        return NULL;
+                        return nullptr;
                     }
                     break;
             }

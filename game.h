@@ -8,6 +8,7 @@
 #include "constants.h"
 #include "vector"
 #include "map"
+#include "include/json.hpp"
 
 using namespace std;
 
@@ -17,10 +18,11 @@ class Player {
 public:
     int id; //玩家id，唯一标识玩家，room-id + player-id
     int identity; //当前玩家是人还是鬼
-    int x, y; //当前人的位置或者鬼的位置，在某一具体格子上
+    int x;
+    int y; //当前人的位置或者鬼的位置，在某一具体格子上
     //留有通信字段,例如地址端口等信息
-
-
+    string nickName;
+    int direct;
     int mines; //人当前的地雷数量
     int lights;//当前的照明次数
     bool isLighting;//当前是否在照明
@@ -29,27 +31,33 @@ public:
     bool isDizziness;//是否被晕眩
 public:
     Player(int id, int identity);
-
+    Player();
     void BecomeHuman();
-
     void BecomeGhost();
 };
 
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+        Player, id, identity, x, y, nickName, direct, mines, lights, isLighting,
+        isEscaped, isDead, isDizziness
+);
 
 //表示每一个块数据，graph由width*height个块组成
 class Block {
 public:
     int blockType;//方块种类
     int playerId;//若玩家存在，则需要表示玩家的id
-    int x, y;
-
+    int x;
+    int y;
     Block();
-
     Block(int blockType);
 
     Block(int blockType, int x, int y);
 //表示方块的位置，玩家将会接收到当前的block列表，需要根据其中的信息更新自己的客户端界面
 };
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+        Block, blockType,playerId,x,y
+);
 
 //地图类，保存游戏的当前状态,用来进行绘图操作，客户端将通过该信息更新游戏状态
 class Game {
@@ -81,13 +89,13 @@ public:
     Point randRoadPoint();
 
     //移动,指定方向,可能会更新block状态，例如踩到雷或者吃掉钥匙
-    Block Move(int playerId, int direct);
+    Block* Move(int playerId, int direct);
 
     //开灯
     bool Lighting(int playerId);
 
     //埋雷，可能更新状态
-    Block buriedMine(int playerId);
+    Block* buriedMine(int playerId);
 
     //关闭照明
     bool closeLight(int playerId);
