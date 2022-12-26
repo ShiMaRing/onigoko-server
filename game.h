@@ -54,6 +54,7 @@ public:
     int playerId;//若玩家存在，则需要表示玩家的id
     int x;
     int y;
+
     Block();
 
     explicit Block(int blockType);
@@ -94,22 +95,26 @@ public:
     Point randRoadPoint();
 
     //移动,指定方向,可能会更新block状态，例如踩到雷或者吃掉钥匙
-    Block *Move(int playerId, int direct);
+    Block *Move(uint32_t playerId, int direct, vector<Player> &v, char *message);
 
     //开灯
-    bool Lighting(int playerId);
+    bool Lighting(uint32_t playerId);
 
     //埋雷，可能更新状态
-    Block *buriedMine(int playerId);
+    Block *buriedMine(uint32_t playerId);
 
     //关闭照明
-    bool closeLight(int playerId);
+    bool closeLight(uint32_t playerId);
 
-    bool recoverFromDizziness(int playerId);
+    bool recoverFromDizziness(uint32_t playerId);
 
     Game();
 
-    Operation handle_message(Operation op);
+    //根据玩家id操作玩家
+    Operation *handle_message(Operation op);
+
+    Player getPlayerById(uint32_t id);
+
 };
 
 

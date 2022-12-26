@@ -26,14 +26,6 @@ list<int> clients_list;
 
 #define BUF_SIZE 0xFFFF
 
-#define SERVER_WELCOME "Welcome you join  to the chat room! Your chat ID is: Client #%d"
-
-#define SERVER_MESSAGE "ClientID %d say >> %s"
-
-#define EXIT "EXIT"
-
-#define CAUTION "There is only one int the char room!"
-
 //游戏服务器,主要是接收用户通信并且更新内部的服务器状态,允许同时运行多个房间
 int sendOperation(Operation o, int fd);
 
@@ -53,10 +45,7 @@ public:
         //处理来自客户端的消息，并且需要返回OPeration
         //首先判断操作类型，是否是加入游戏
         switch (o.operationType) {
-            case HEART_BEAT:
-                //忽略心跳消息
-                break;
-            case JOIN_ROOM:;
+            case JOIN_ROOM : {
                 //找一个房间,如果没有合适的房间就创建一个房间，如果有就开始
                 playerid_fd[o.playerId] = fd;
                 bool isFinded;
@@ -77,7 +66,7 @@ public:
                             operation.players = item.second.players;
 
                             //将所有的房间地块信息返回，作为初始化地图数据
-                            operation.blocks= vector<Block>();
+                            operation.blocks = vector<Block>();
                             for (int i = 0; i < item.second.height; ++i) {
                                 for (int j = 0; j < item.second.width; ++j) {
                                     operation.blocks.push_back(item.second.blocks[i][j]);
@@ -122,7 +111,8 @@ public:
                     sendOperation(operation, fd);
                 }
                 break;
-            case LEAVE_ROOM:
+            }
+            case LEAVE_ROOM : {
                 //离开房间
                 Game &game = rooms[o.roomId];
                 for (auto it = game.players.begin(); it != game.players.end(); it++) {
@@ -146,35 +136,62 @@ public:
                     }
                 }
                 break;
-
-
+            }
+            default: {
+                //根据玩家的id号，找到对应的房间，交给房间来处理，房间会返回block，server负责广播，前端会处理剩下的逻辑
+                Game &game = rooms[o.roomId];
+                Operation *op = game.handle_message(o);
+                //操作可能失败，需要注意判断
+                if (op != nullptr) {
+                    for (auto &p: game.players) {
+                        sendOperation(*op, playerid_fd[p.id]);
+                    }
+                    free(op);
+                }
+                //注意op
+                break;
+            }
         }
-
-
     }
 
+    void leaveRoom(const uint32_t i) {
+        //离开房间
+        for (auto it = rooms.begin(); it != rooms.end(); it++) {
+            for (auto it2 = it->second.players.begin(); it2 != it->second.players.end(); it2++) {
+                if (it2->id == i) {
+                    it->second.players.erase(it2);
+                    //检查房间是否为空
+                    if (it->second.players.empty()) {
+                        rooms.erase(it);
+                        break;
+                    }
+                }
+            }
+        }
+    };
 
+    int sendOperation(Operation o, int fd) {
+        //将Operation转换为json字符串
+        json j = o;
+        string s = j.dump();
+        //发送给客户端
+        int ret = send(fd, s.c_str(), s.size(), 0);
+        if (ret == -1) {
+            perror("send error");
+            close(fd);
+            clients_list.remove(fd);
+        }
+        //输出日志
+        cout << "send:" << s << endl;
+        return ret;
+    };
 };
 
-int sendOperation(Operation o, int fd) {
-    //将Operation转换为json字符串
-    json j = o;
-    string s = j.dump();
-    //发送给客户端
-    int ret = send(fd, s.c_str(), s.size(), 0);
-    if (ret == -1) {
-        perror("send error");
-        close(fd);
-        clients_list.remove(fd);
-    }
-    //输出日志
-    cout << "send:" << s << endl;
-    return ret;
-}
-
+//创建server
+Server server = Server();
 
 //维护全局游戏状态
-Server server;
+
 
 int setnonblocking(int sockfd) {
     fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFD, 0) | O_NONBLOCK);
@@ -209,11 +226,17 @@ int handle_message(int clientfd) {
         clients_list.remove(clientfd); //server remove the client
         printf("ClientID = %d closed.\n now there are %d client in the char room\n", clientfd,
                (int) clients_list.size());
+        //清除玩家信息，根据玩家套接字找到玩家的id
+        for (auto &item: server.playerid_fd) {
+            if (item.second == clientfd) {
+                server.leaveRoom(item.first);
+                break;
+            }
+        }
     } else {
         Operation operation = json2operation(buf);
         //传递给server
         server.onMessage(operation, clientfd);
-
 
     }
     return len;
@@ -236,9 +259,6 @@ Operation json2operation(const char *json_text) {
 
 
 int main(int argc, char *argv[]) {
-    //创建server
-    server = Server();
-
     struct sockaddr_in serverAddr;
     serverAddr.sin_family = PF_INET;
     serverAddr.sin_port = htons(SERVER_PORT);

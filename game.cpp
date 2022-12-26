@@ -11,6 +11,9 @@
 Operation::Operation() {
     players = vector<Player>();
     blocks = vector<Block>();
+    playerId = 0;
+    operationType = 0;
+    roomId = 0;
 }
 
 
@@ -61,6 +64,10 @@ Block::Block(int blockType, int x, int y) : blockType(blockType), x(x), y(y) {
 }
 
 Block::Block() {
+    blockType = 0;
+    x = 0;
+    y = 0;
+    playerId = 0;
 }
 
 //初始化状态
@@ -194,7 +201,7 @@ Game::Point Game::randRoadPoint() {
 }
 
 //照明，观察全局位置，同时鬼得到位置
-bool Game::Lighting(int playerId) {
+bool Game::Lighting(uint32_t playerId) {
     for (auto &item: players) {
         if (item.id == playerId) {
             //死亡或者已逃跑则不允许执行该操作,操作合法性由客户端进行判断
@@ -209,9 +216,9 @@ bool Game::Lighting(int playerId) {
 }
 
 //埋雷，只有玩家能看到，鬼看不到，
-Block *Game::buriedMine(int playerId) {
+Block *Game::buriedMine(uint32_t playerId) {
     for (auto &item: players) {
-        if (item.id == playerId) {
+        if (item.id == playerId && item.mines > 0 && !item.isDead && !item.isEscaped && item.identity == HUMAN) {
             //在当前位置埋雷
             int x = item.x;
             int y = item.y;
@@ -221,13 +228,14 @@ Block *Game::buriedMine(int playerId) {
             }
             //否则开始埋雷
             blocks[x][y].blockType = MINE;//需要更新状态,
+            item.mines--;
             return &blocks[x][y];
         }
     }
 }
 
 //到时间后关闭照明,如果已经死亡或者已经逃跑就不需要执行
-bool Game::closeLight(int playerId) {
+bool Game::closeLight(uint32_t playerId) {
     for (auto &item: players) {
         if (item.id == playerId) {
             if (item.isDead || item.isEscaped || item.identity == GHOST) {
@@ -240,7 +248,7 @@ bool Game::closeLight(int playerId) {
 }
 
 //鬼从晕眩状态恢复
-bool Game::recoverFromDizziness(int playerId) {
+bool Game::recoverFromDizziness(uint32_t playerId) {
     for (auto &item: players) {
         if (item.id == playerId) {
             if (!item.isDizziness || item.identity == HUMAN) {
@@ -253,7 +261,7 @@ bool Game::recoverFromDizziness(int playerId) {
 }
 
 //移动,核心游戏逻辑，一次逻辑单元为某一用户向某一方向移动了一个距离单位
-Block *Game::Move(int playerId, int direct) {
+Block *Game::Move(uint32_t playerId, int direct, vector<Player> &v, char *message) {
     //首先判断用户身份
     for (auto &item: players) {
         if (item.id == playerId) {
@@ -293,10 +301,13 @@ Block *Game::Move(int playerId, int direct) {
                         return nullptr;//重叠禁止
                     } else if (player.identity == GHOST && identity == HUMAN) {
                         //人移动主动撞鬼
+                      sprintf( message ,"%s is killed by ghost!", item.nickName.c_str());
                         item.isDead = true;
                     } else {
                         //鬼抓到人
+                        v.push_back(player);
                         player.isDead = true;
+                        sprintf( message ,"%s is killed by ghost!", player.nickName.c_str());
                     }
                     //判断死亡人数是否超过两个，超过两个为鬼胜利
                     deadNums++;
@@ -312,6 +323,7 @@ Block *Game::Move(int playerId, int direct) {
             //更新新的位置
             item.x = x;
             item.y = y;
+            item.direct = direct;
             switch (item.identity) {
                 case GHOST:
                     //鬼移动,可能碰上地雷
@@ -324,6 +336,7 @@ Block *Game::Move(int playerId, int direct) {
                 case HUMAN:
                     //可能吃钥匙
                     if (blocks[x][y].blockType == KEY) {
+                        sprintf( message ,"%s find a key!", item.nickName.c_str());
                         foundKeys++;
                         blocks[x][y].blockType = ROAD;//钥匙消失
                         //可能会更新大门
@@ -332,6 +345,7 @@ Block *Game::Move(int playerId, int direct) {
                         }
                         return &blocks[x][y];
                     } else if (blocks[x][y].blockType == GATE) {//跑到大门处
+                        sprintf( message ,"%s is escaped!", item.nickName.c_str());
                         item.isEscaped = true;
                         escapedNums++;
                         if (escapedNums >= 2) {
@@ -348,10 +362,6 @@ Block *Game::Move(int playerId, int direct) {
 
 }
 
-//处理消息，转化并且生成operation返回
-Operation Game::handle_message(Operation op) {
-    return op;
-}
 
 Game::Game() {
     players = vector<Player>();
@@ -359,6 +369,106 @@ Game::Game() {
     srand((unsigned) time(NULL));
     //随即生成房间id
     id = rand() % 1000000;
+}
+
+Operation *Game::handle_message(Operation o) {
+    Operation *op = new Operation();
+    op->roomId = id;
+    switch (o.operationType) {
+        case HEART_BEAT: {
+            break;
+        }
+        case UP:
+        case DOWN:
+        case LEFT:
+        case RIGHT: {
+            char *message = new char[64];
+            bzero(message, 64);
+            op->message = message;
+            Block *block = Move(o.playerId, o.operationType, op->players, message);
+            //直接更新所有人状态即可
+            //对于返回空指针的情况，需要判断游戏有没有结束
+            if (block == nullptr) {
+                if (isEnd) {
+                    op->operationType = GAME_END;
+                    if (isGhostWin) {
+                        op->message = "ghost win!";
+                    } else {
+                        op->message = "human win!";
+                    }
+                } else {
+                    return nullptr;
+                }
+            } else {
+                op->operationType = UPDATE;
+                op->blocks.push_back(*block);
+                //需要更新自身状态
+                for (auto &item: op->players) {
+                    if (item.id == o.playerId) {
+                        op->players.push_back(item);
+                        break;
+                    }
+                }
+                //需要更新大门状态
+                if (isDoorOpen) {
+                    blocks[gate1.x][gate1.y].blockType = GATE;
+                    blocks[gate2.x][gate2.y].blockType = GATE;
+                    op->blocks.push_back(blocks[gate1.x][gate1.y]);
+                    op->blocks.push_back(blocks[gate2.x][gate2.y]);
+                }
+            }
+            break;
+        }
+        case PLACE_MINE: {
+            Block *block = buriedMine(o.playerId);
+            if (block != nullptr) {
+                op->operationType = UPDATE;
+                op->blocks.push_back(*block);
+            } else {
+                return nullptr;//不做回复
+            }
+            break;
+        }
+        case OPEN_LIGHT: {
+            bool result = Lighting(o.playerId);
+            if (result) {
+                op->operationType = UPDATE;
+                op->players.push_back(getPlayerById(o.playerId));
+            } else {
+                return nullptr;
+            }
+            break;
+        }
+        case CLOSE_LIGHT: {
+            bool result = closeLight(o.playerId);
+            if (result) {
+                op->operationType = UPDATE;
+                op->players.push_back(getPlayerById(o.playerId));
+            } else {
+                return nullptr;
+            }
+            break;
+        }
+        case RECOVER_FROM_DIZZINESS: {
+            bool result = recoverFromDizziness(o.playerId);
+            if (result) {
+                op->operationType = UPDATE;
+                op->players.push_back(getPlayerById(o.playerId));
+            } else {
+                return nullptr;
+            }
+            break;
+        }
+    }
+    return op;
+}
+
+Player Game::getPlayerById(uint32_t id) {
+    for (auto &item: players) {
+        if (item.id == id) {
+            return item;
+        }
+    }
 }
 
 
