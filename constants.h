@@ -61,12 +61,14 @@ const int UPDATE = 57;//更新客户端资源
 const int GAME_START = 58;//初始化地图资源
 const int GAME_END = 59;//游戏结束
 
+const int LEAVE_ROOM = 60;
+const int HEART_BEAT = 61;
+const int JOIN_FAIL = 62;
+
+const int JOIN_SUCCESS = 63;
 
 
-
-
-
-
-
-
-
+const string Ghost = "ghost";
+const string P1 = "p1";
+const string P2 = "p2";
+const string P3 = "p3";

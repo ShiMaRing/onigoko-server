@@ -8,8 +8,11 @@
 #include <random>
 #include "queue"
 
-Player::Player(int id, int identity) : id(id), identity(identity) {
+Operation::Operation() {
+    players = vector<Player>();
+    blocks = vector<Block>();
 }
+
 
 void Player::BecomeHuman() {
     identity = HUMAN;
@@ -22,6 +25,31 @@ void Player::BecomeGhost() {
 }
 
 Player::Player() {
+    id = 0;
+    identity = HUMAN;
+    x = 0;
+    y = 0;
+    nickName = "";
+    direct = 0;
+    mines = 0;
+    lights = 0;
+    isLighting = false;
+    isEscaped = false;
+    isDead = false;
+    isDizziness = false;
+}
+
+Player::Player(uint32_t id, int identity) {
+    this->id = id;
+    this->identity = identity;
+    isLighting = false;
+    isEscaped = false;
+    isDead = false;
+    isDizziness = false;
+    direct = 0;
+    mines = 0;
+    lights = 0;
+
 }
 
 Block::Block(int blockType) : blockType(blockType) {
@@ -37,6 +65,7 @@ Block::Block() {
 
 //初始化状态
 void Game::initGraph() {
+
     width = GraphWith;
     height = GraphHeight;
     blocks = vector<vector<Block>>(height, vector<Block>(width));
@@ -123,13 +152,11 @@ void Game::initGraph() {
             }
         }
     }
-    //设置门的位置,放置gate
+    //设置门的位置,暂时不设置门，只有在
     gate1.x = start_x;
     gate1.y = start_y;
     gate2.x = end_x;
     gate2.y = end_y;
-    blocks[start_x][start_y].blockType = GATE;
-    blocks[end_x][end_y].blockType = GATE;
     //key随机创造6把钥匙，至少找到4把才能开
     for (int i = 0; i < ALL_KEYS_NUM; ++i) {
         Point point = randRoadPoint();
@@ -137,6 +164,7 @@ void Game::initGraph() {
     }
     //player放置,随机生成一个ghost
     int randGhostIdx = e() % players.size();
+    int j = 1;
     for (int i = 0; i < players.size(); i++) {
         Point point = randRoadPoint();
         blocks[point.x][point.y].playerId = players[i].id;
@@ -144,23 +172,23 @@ void Game::initGraph() {
         players[i].y = point.y;
         if (i == randGhostIdx) {
             players[i].BecomeGhost();
+            players[i].nickName = "ghost";
+            players[i].direct = DOWN;
         } else {
             players[i].BecomeHuman();
+            players[i].direct = DOWN;
+            players[i].nickName = "p" + to_string(j);
+            j++;
         }
     }
 }
 
-void Game::setPlayers(const vector<Player> &players) {
-    Game::players = players;
-}
-
 Game::Point Game::randRoadPoint() {
-    default_random_engine e(time(0));
-    int rand_x = 1 + e() % (height - 2);
-    int rand_y = 1 + e() % (width - 2);
-    while (blocks[rand_x][rand_y].blockType != ROAD) {
-        rand_x = 1 + e() % (height - 2);
-        rand_y = 1 + e() % (width - 2);
+    int rand_x = 1 + rand() % (height - 2);
+    int rand_y = 1 + rand() % (width - 2);
+    while (blocks[rand_x][rand_y].blockType != ROAD || blocks[rand_x][rand_y].playerId != 0) {
+        rand_x = 1 + rand() % (height - 2);
+        rand_y = 1 + rand() % (width - 2);
     }
     return Point{rand_x, rand_y};
 }
@@ -181,7 +209,7 @@ bool Game::Lighting(int playerId) {
 }
 
 //埋雷，只有玩家能看到，鬼看不到，
-Block* Game::buriedMine(int playerId) {
+Block *Game::buriedMine(int playerId) {
     for (auto &item: players) {
         if (item.id == playerId) {
             //在当前位置埋雷
@@ -225,7 +253,7 @@ bool Game::recoverFromDizziness(int playerId) {
 }
 
 //移动,核心游戏逻辑，一次逻辑单元为某一用户向某一方向移动了一个距离单位
-Block* Game::Move(int playerId, int direct) {
+Block *Game::Move(int playerId, int direct) {
     //首先判断用户身份
     for (auto &item: players) {
         if (item.id == playerId) {
@@ -258,8 +286,8 @@ Block* Game::Move(int playerId, int direct) {
                 return nullptr;
             }
             //碰撞检测
-            for (auto & player : players) {
-                if (player.x == x && player.y == y) {
+            for (auto &player: players) {
+                if (player.x == x && player.y == y && player.id != playerId) {
                     //两个都是人类禁止重叠
                     if (player.identity == HUMAN && identity == HUMAN) {
                         return nullptr;//重叠禁止
@@ -270,10 +298,6 @@ Block* Game::Move(int playerId, int direct) {
                         //鬼抓到人
                         player.isDead = true;
                     }
-                    //更新新的值,客户端需要更新
-                    item.x = x;
-                    item.y = y;
-                    blocks[x][y].blockType = DEAD;
                     //判断死亡人数是否超过两个，超过两个为鬼胜利
                     deadNums++;
                     if (deadNums >= 2) {
@@ -281,8 +305,8 @@ Block* Game::Move(int playerId, int direct) {
                         isEnd = true;
                         isGhostWin = true;
                     }
-                    //返回可能出现的死者
-                    return &blocks[x][y];
+                    //没有需要更新的地块
+                    return nullptr;
                 }
             }
             //更新新的位置
@@ -323,5 +347,19 @@ Block* Game::Move(int playerId, int direct) {
     }
 
 }
+
+//处理消息，转化并且生成operation返回
+Operation Game::handle_message(Operation op) {
+    return op;
+}
+
+Game::Game() {
+    players = vector<Player>();
+    blocks = vector<vector<Block>>();
+    srand((unsigned) time(NULL));
+    //随即生成房间id
+    id = rand() % 1000000;
+}
+
 
 

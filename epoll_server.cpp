@@ -1,6 +1,5 @@
 
 #include "game.h"
-#include "operation.h"
 #include <sys/epoll.h>
 #include <list>
 #include <sys/socket.h>
@@ -11,7 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <iostream>
 #include "include/json.hpp"
+
 using namespace std;
 using json = nlohmann::json;
 
@@ -34,22 +35,143 @@ list<int> clients_list;
 #define CAUTION "There is only one int the char room!"
 
 //游戏服务器,主要是接收用户通信并且更新内部的服务器状态,允许同时运行多个房间
+int sendOperation(Operation o, int fd);
+
 class Server {
 public:
     map<int, Game> rooms; //维护各个房间状态
+    map<uint32_t, int> playerid_fd; //维护玩家id和fd的对应关系
 
 public:
     Server() {
         //构造函数
-        rooms=map<int,Game>();
+        rooms = map<int, Game>();
+        playerid_fd = map<uint32_t, int>();
     }
 
-    void onMessage(Operation o) {
-        //处理来自客户端的消息
+    void onMessage(Operation o, int fd) {
+        //处理来自客户端的消息，并且需要返回OPeration
+        //首先判断操作类型，是否是加入游戏
+        switch (o.operationType) {
+            case HEART_BEAT:
+                //忽略心跳消息
+                break;
+            case JOIN_ROOM:;
+                //找一个房间,如果没有合适的房间就创建一个房间，如果有就开始
+                playerid_fd[o.playerId] = fd;
+                bool isFinded;
+                for (auto &item: rooms) {
+                    if (item.second.players.size() < 4) {
+                        //将该用户加入房间，需要根据用户信息创建一个player
+                        Player player = Player();
+                        player.id = o.playerId;
+                        item.second.players.push_back(player);
+                        isFinded = true;
+                        //检查是否到了四个人
+                        if (item.second.players.size() == 2) {
+                            //开始游戏,需要初始化游戏,并且返回初始化信息
+                            item.second.initGraph();
+                            //返回初始化信息
+                            Operation operation = Operation();
+                            operation.operationType = GAME_START;
+                            operation.players = item.second.players;
+
+                            //将所有的房间地块信息返回，作为初始化地图数据
+                            operation.blocks= vector<Block>();
+                            for (int i = 0; i < item.second.height; ++i) {
+                                for (int j = 0; j < item.second.width; ++j) {
+                                    operation.blocks.push_back(item.second.blocks[i][j]);
+                                }
+                            }
+                            operation.roomId = item.second.id;
+                            //广播给所有人
+                            for (auto &p: item.second.players) {
+                                sendOperation(operation, playerid_fd[p.id]);
+                            }
+                            return;
+                        } else {
+                            //返回加入成功信息，对于当前房间内其他玩家，是有人加入了，对于刚加入的玩家，是加入成功
+                            Operation operation = Operation();
+                            for (auto &p: item.second.players) {
+                                if (p.id == o.playerId) {
+                                    operation.operationType = JOIN_SUCCESS;
+                                    operation.players = item.second.players;
+                                    operation.roomId = item.second.id;
+                                    sendOperation(operation, playerid_fd[p.id]);
+                                } else {
+                                    operation.operationType = JOIN_ROOM;
+                                    sendOperation(operation, playerid_fd[p.id]);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (!isFinded) {
+                    //创建一个房间
+                    Game game = Game();
+                    Player player = Player();
+                    player.id = o.playerId;
+                    game.players.push_back(player);
+                    rooms[game.id] = game;
+                    //返回加入成功信息
+                    Operation operation = Operation();
+                    operation.operationType = JOIN_SUCCESS;
+                    operation.roomId = game.id;
+                    operation.players = game.players;
+                    sendOperation(operation, fd);
+                }
+                break;
+            case LEAVE_ROOM:
+                //离开房间
+                Game &game = rooms[o.roomId];
+                for (auto it = game.players.begin(); it != game.players.end(); it++) {
+                    if (it->id == o.playerId) {
+                        game.players.erase(it);
+                        //释放文件描述符
+                        playerid_fd.erase(o.playerId);
+                        break;
+                    }
+                }
+                //如果房间内没有人了，就删除房间
+                if (game.players.empty()) {
+                    rooms.erase(o.roomId);
+                } else {
+                    //如果房间内还有人，就通知其他人
+                    Operation operation = Operation();
+                    operation.operationType = LEAVE_ROOM;
+                    operation.playerId = o.playerId;
+                    for (auto &p: game.players) {
+                        sendOperation(operation, playerid_fd[p.id]);
+                    }
+                }
+                break;
+
+
+        }
+
+
     }
 
 
 };
+
+int sendOperation(Operation o, int fd) {
+    //将Operation转换为json字符串
+    json j = o;
+    string s = j.dump();
+    //发送给客户端
+    int ret = send(fd, s.c_str(), s.size(), 0);
+    if (ret == -1) {
+        perror("send error");
+        close(fd);
+        clients_list.remove(fd);
+    }
+    //输出日志
+    cout << "send:" << s << endl;
+    return ret;
+}
+
 
 //维护全局游戏状态
 Server server;
@@ -59,6 +181,7 @@ int setnonblocking(int sockfd) {
     return 0;
 }
 
+Operation json2operation(const char *json_text);
 
 void addfd(int epollfd, int fd, bool enable_et) {
     struct epoll_event ev;
@@ -81,32 +204,40 @@ int handle_message(int clientfd) {
 
     //从客户端接受消息，为一串json字符串
     int len = recv(clientfd, buf, BUF_SIZE, 0);
-
-    if (len <= 0)
-    {
+    if (len <= 0) {
         close(clientfd);
         clients_list.remove(clientfd); //server remove the client
         printf("ClientID = %d closed.\n now there are %d client in the char room\n", clientfd,
                (int) clients_list.size());
-    } else
-    {
+    } else {
+        Operation operation = json2operation(buf);
+        //传递给server
+        server.onMessage(operation, clientfd);
+
 
     }
     return len;
 }
 
 //json 字符串转operation结构体
-Operation json2operation(const char* json_text){
-
-
-
-
+Operation json2operation(const char *json_text) {
+    //输出字符串
+    std::cout << json_text << std::endl;
+    json json = json::parse(json_text);
+    int operationType = json["operationType"];
+    uint32_t playerId = json["playerId"];
+    int roomId = json["roomId"];
+    Operation op;
+    op.operationType = operationType;
+    op.playerId = playerId;
+    op.roomId = roomId;
+    return op;
 }
 
 
-int main_server(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     //创建server
-    server=Server();
+    server = Server();
 
     struct sockaddr_in serverAddr;
     serverAddr.sin_family = PF_INET;
@@ -163,12 +294,6 @@ int main_server(int argc, char *argv[]) {
                 printf("welcome message\n");
                 char message[BUF_SIZE];
                 bzero(message, BUF_SIZE);
-                sprintf(message, SERVER_WELCOME, client_fd);
-                int ret = send(client_fd, message, BUF_SIZE, 0);
-                if (ret < 0) {
-                    perror("send error");
-                    exit(-1);
-                }
             } else {
                 //这里接收到了客户端的消息，需要对消息进行读取，交给Server处理
                 int ret = handle_message(sockfd);

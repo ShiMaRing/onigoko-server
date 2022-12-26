@@ -13,10 +13,13 @@
 using namespace std;
 
 
+class Operation;
+
+
 //玩家通用模板
 class Player {
 public:
-    int id; //玩家id，唯一标识玩家，room-id + player-id
+    uint32_t id; //玩家id
     int identity; //当前玩家是人还是鬼
     int x;
     int y; //当前人的位置或者鬼的位置，在某一具体格子上
@@ -30,9 +33,12 @@ public:
     bool isDead; //当前玩家是否死亡
     bool isDizziness;//是否被晕眩
 public:
-    Player(int id, int identity);
+    Player(uint32_t id, int identity);
+
     Player();
+
     void BecomeHuman();
+
     void BecomeGhost();
 };
 
@@ -49,14 +55,15 @@ public:
     int x;
     int y;
     Block();
-    Block(int blockType);
+
+    explicit Block(int blockType);
 
     Block(int blockType, int x, int y);
 //表示方块的位置，玩家将会接收到当前的block列表，需要根据其中的信息更新自己的客户端界面
 };
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
-        Block, blockType,playerId,x,y
+        Block, blockType, playerId, x, y
 );
 
 //地图类，保存游戏的当前状态,用来进行绘图操作，客户端将通过该信息更新游戏状态
@@ -81,26 +88,46 @@ public:
     Point gate2;
 
 public:
-    void setPlayers(const vector<Player> &players);
-
     //初始化Graph,绘制地图,需要初始化各个block，随机生成边缘地块，钥匙，四个玩家位置
     void initGraph();
 
     Point randRoadPoint();
 
     //移动,指定方向,可能会更新block状态，例如踩到雷或者吃掉钥匙
-    Block* Move(int playerId, int direct);
+    Block *Move(int playerId, int direct);
 
     //开灯
     bool Lighting(int playerId);
 
     //埋雷，可能更新状态
-    Block* buriedMine(int playerId);
+    Block *buriedMine(int playerId);
 
     //关闭照明
     bool closeLight(int playerId);
 
     bool recoverFromDizziness(int playerId);
+
+    Game();
+
+    Operation handle_message(Operation op);
 };
+
+
+class Operation {
+public:
+    int roomId; //房间号
+    uint32_t playerId; //用户号
+    int operationType; //执行的操作类型
+    vector<Player> players;//包含每一个玩家的状态
+    vector<Block> blocks;//更新指定的地块的状态
+    string message;//携带的消息
+public:
+    Operation();
+};
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+        Operation, roomId, playerId, operationType, players, blocks, message
+);
+
 
 #endif //ONIGOKO_GAME_H

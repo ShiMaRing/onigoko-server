@@ -4,26 +4,18 @@
 #include <iostream>
 #include "include/json.hpp"
 #include "game.h"
-#include "operation.h"
 
 using namespace std;
 using json = nlohmann::json;
-int main(){
+
+int main_test() {
     Player player;
-    player.id=10;
-    player.direct=3;
-    Block block;
-    block.blockType=3;
-    block.playerId=3;
-    Operation operation;
-    operation.blocks.push_back(block);
-    operation.player.push_back(player);
-    operation.isSuccess= true;
-    json json;
-    to_json(json, operation);  // "generated" function
-    std::cout << json.dump(1) << std::endl;
+    player.id = 1;
+    printf("players id %d", player.id);
+    Player *p = &player;
+    Player &tmp = *p;
+    tmp.id = 2;
+    printf("players id %d", player.id);
     return 0;
-
-
 
 }
