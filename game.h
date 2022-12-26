@@ -95,7 +95,7 @@ public:
     Point randRoadPoint();
 
     //移动,指定方向,可能会更新block状态，例如踩到雷或者吃掉钥匙
-    Block *Move(uint32_t playerId, int direct, vector<Player> &v, char *message);
+    Block *Move(uint32_t playerId, int direct, vector<Player> &v, string &message);
 
     //开灯
     bool Lighting(uint32_t playerId);
@@ -113,7 +113,7 @@ public:
     //根据玩家id操作玩家
     Operation *handle_message(Operation op);
 
-    Player getPlayerById(uint32_t id);
+    Player* getPlayerById(uint32_t id);
 
 };
 

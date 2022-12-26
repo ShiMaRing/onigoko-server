@@ -31,13 +31,13 @@ int sendOperation(Operation o, int fd);
 
 class Server {
 public:
-    map<int, Game> rooms; //维护各个房间状态
+    map<int, Game *> rooms; //维护各个房间状态
     map<uint32_t, int> playerid_fd; //维护玩家id和fd的对应关系
 
 public:
     Server() {
         //构造函数
-        rooms = map<int, Game>();
+        rooms = map<int, Game *>();
         playerid_fd = map<uint32_t, int>();
     }
 
@@ -50,42 +50,42 @@ public:
                 playerid_fd[o.playerId] = fd;
                 bool isFinded;
                 for (auto &item: rooms) {
-                    if (item.second.players.size() < 4) {
+                    if (item.second->players.size() < 4) {
                         //将该用户加入房间，需要根据用户信息创建一个player
                         Player player = Player();
                         player.id = o.playerId;
-                        item.second.players.push_back(player);
+                        item.second->players.push_back(player);
                         isFinded = true;
                         //检查是否到了四个人
-                        if (item.second.players.size() == 2) {
+                        if (item.second->players.size() == 2) {
                             //开始游戏,需要初始化游戏,并且返回初始化信息
-                            item.second.initGraph();
+                            item.second->initGraph();
                             //返回初始化信息
                             Operation operation = Operation();
                             operation.operationType = GAME_START;
-                            operation.players = item.second.players;
+                            operation.players = item.second->players;
 
                             //将所有的房间地块信息返回，作为初始化地图数据
                             operation.blocks = vector<Block>();
-                            for (int i = 0; i < item.second.height; ++i) {
-                                for (int j = 0; j < item.second.width; ++j) {
-                                    operation.blocks.push_back(item.second.blocks[i][j]);
+                            for (int i = 0; i < item.second->height; ++i) {
+                                for (int j = 0; j < item.second->width; ++j) {
+                                    operation.blocks.push_back(item.second->blocks[i][j]);
                                 }
                             }
-                            operation.roomId = item.second.id;
+                            operation.roomId = item.second->id;
                             //广播给所有人
-                            for (auto &p: item.second.players) {
+                            for (auto &p: item.second->players) {
                                 sendOperation(operation, playerid_fd[p.id]);
                             }
                             return;
                         } else {
                             //返回加入成功信息，对于当前房间内其他玩家，是有人加入了，对于刚加入的玩家，是加入成功
                             Operation operation = Operation();
-                            for (auto &p: item.second.players) {
+                            for (auto &p: item.second->players) {
                                 if (p.id == o.playerId) {
                                     operation.operationType = JOIN_SUCCESS;
-                                    operation.players = item.second.players;
-                                    operation.roomId = item.second.id;
+                                    operation.players = item.second->players;
+                                    operation.roomId = item.second->id;
                                     sendOperation(operation, playerid_fd[p.id]);
                                 } else {
                                     operation.operationType = JOIN_ROOM;
@@ -98,40 +98,41 @@ public:
                 }
                 if (!isFinded) {
                     //创建一个房间
-                    Game game = Game();
+                    Game *game = new Game();
                     Player player = Player();
                     player.id = o.playerId;
-                    game.players.push_back(player);
-                    rooms[game.id] = game;
+                    game->players.push_back(player);
+                    rooms[game->id] = game;
                     //返回加入成功信息
                     Operation operation = Operation();
                     operation.operationType = JOIN_SUCCESS;
-                    operation.roomId = game.id;
-                    operation.players = game.players;
+                    operation.roomId = game->id;
+                    operation.players = game->players;
                     sendOperation(operation, fd);
                 }
                 break;
             }
             case LEAVE_ROOM : {
                 //离开房间
-                Game &game = rooms[o.roomId];
-                for (auto it = game.players.begin(); it != game.players.end(); it++) {
+                Game *game = rooms[o.roomId];
+                for (auto it = game->players.begin(); it != game->players.end(); it++) {
                     if (it->id == o.playerId) {
-                        game.players.erase(it);
+                        game->players.erase(it);
                         //释放文件描述符
                         playerid_fd.erase(o.playerId);
                         break;
                     }
                 }
                 //如果房间内没有人了，就删除房间
-                if (game.players.empty()) {
+                if (game->players.empty()) {
                     rooms.erase(o.roomId);
+                    free(game);
                 } else {
                     //如果房间内还有人，就通知其他人
                     Operation operation = Operation();
                     operation.operationType = LEAVE_ROOM;
                     operation.playerId = o.playerId;
-                    for (auto &p: game.players) {
+                    for (auto &p: game->players) {
                         sendOperation(operation, playerid_fd[p.id]);
                     }
                 }
@@ -139,7 +140,7 @@ public:
             }
             default: {
                 //根据玩家的id号，找到对应的房间，交给房间来处理，房间会返回block，server负责广播，前端会处理剩下的逻辑
-                Game &game = rooms[o.roomId];
+                Game &game = *rooms[o.roomId];
                 Operation *op = game.handle_message(o);
                 //操作可能失败，需要注意判断
                 if (op != nullptr) {
@@ -157,11 +158,11 @@ public:
     void leaveRoom(const uint32_t i) {
         //离开房间
         for (auto it = rooms.begin(); it != rooms.end(); it++) {
-            for (auto it2 = it->second.players.begin(); it2 != it->second.players.end(); it2++) {
+            for (auto it2 = it->second->players.begin(); it2 != it->second->players.end(); it2++) {
                 if (it2->id == i) {
-                    it->second.players.erase(it2);
+                    it->second->players.erase(it2);
                     //检查房间是否为空
-                    if (it->second.players.empty()) {
+                    if (it->second->players.empty()) {
                         rooms.erase(it);
                         break;
                     }
@@ -177,6 +178,7 @@ public:
         //发送给客户端
         int ret = send(fd, s.c_str(), s.size(), 0);
         if (ret == -1) {
+            cout << "send:" << s << "  fail" << endl;
             perror("send error");
             close(fd);
             clients_list.remove(fd);
@@ -290,8 +292,6 @@ int main(int argc, char *argv[]) {
             perror("epoll");
             break;
         }
-
-        printf("epoll_events_count = %d\n", epoll_events_count);
         for (int i = 0; i < epoll_events_count; ++i) {
             int sockfd = events[i].data.fd;
             if (sockfd == listen_fd) {
