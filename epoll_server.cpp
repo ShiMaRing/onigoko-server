@@ -124,6 +124,7 @@ public:
             bool isFinded = false;
             for (auto it2 = it->second->players.begin(); it2 != it->second->players.end(); it2++) {
                 if (it2->id == i) {
+
                     isFinded = true;
                     bool isGameStart = false;
                     if (it->second->players.size() == 2) {
@@ -210,6 +211,7 @@ public:
 
 //创建server
 Server server = Server();
+
 //维护全局游戏状态
 int sendOperation(Operation o, int fd) {
     //将Operation转换为json字符串
@@ -383,11 +385,11 @@ int main(int argc, char *argv[]) {
 }
 
 void *join_handler(void *arg) {
-     int queue_id = msgget(JOIN_KEY,  0666);
-     if (queue_id < 0) {
-            perror("msgget");
-            exit(-1);
-     }
+    int queue_id = msgget(JOIN_KEY, 0666);
+    if (queue_id < 0) {
+        perror("msgget");
+        exit(-1);
+    }
     while (true) {
         msg m;
         int res = msgrcv(queue_id, &m, sizeof(OP), 0, 0);
@@ -405,7 +407,8 @@ void *join_handler(void *arg) {
 
         for (auto &item: server.rooms) {
             if (item.second->players.size() < 4) {
-                //将该用户加入房间，需要根据用户信息创建一个player
+                //将该用户加入房间，需要根据用户信息创建一个player，信号量
+                sem_wait(&item.second->sem);
                 Player player = Player();
                 player.id = o.playerId;
                 item.second->players.push_back(player);
@@ -427,6 +430,7 @@ void *join_handler(void *arg) {
                         }
                     }
                     operation.roomId = item.second->id;
+                    sem_post(&item.second->sem);
                     //广播给所有人
                     for (auto &p: item.second->players) {
                         sendOperation(operation, server.playerid_fd[p.id]);
@@ -443,9 +447,10 @@ void *join_handler(void *arg) {
                             sendOperation(operation, server.playerid_fd[p.id]);
                         } else {
                             operation.operationType = JOIN_ROOM;
-                           sendOperation(operation, server.playerid_fd[p.id]);
+                            sendOperation(operation, server.playerid_fd[p.id]);
                         }
                     }
+                    sem_post(&item.second->sem);
                 }
                 break;
             }
@@ -456,14 +461,15 @@ void *join_handler(void *arg) {
             Player player = Player();
             player.id = o.playerId;
             game->players.push_back(player);
+            pthread_mutex_lock(&server.myMutex);
             server.rooms[game->id] = game;
             //返回加入成功信息
             Operation operation = Operation();
             operation.operationType = JOIN_SUCCESS;
             operation.roomId = game->id;
             operation.players = game->players;
-            int *buf = (int*)malloc(sizeof(int));
-            *buf =  game->id;
+            int *buf = (int *) malloc(sizeof(int));
+            *buf = game->id;
 
             int room_queue_id = msgget(game->id, IPC_CREAT | 0666);
             if (room_queue_id == -1) {
@@ -471,6 +477,7 @@ void *join_handler(void *arg) {
                 exit(-1);
             }
             server.roomId_msgId[game->id] = room_queue_id;
+            pthread_mutex_unlock(&server.myMutex);
             pthread_t tid;
             pthread_create(&tid, NULL, msg_handler, buf);
             sendOperation(operation, clientfd);
@@ -481,10 +488,10 @@ void *join_handler(void *arg) {
 void *msg_handler(void *arg) {
     //转化为房间id参数
     pthread_detach(pthread_self());
-    int roomId = *(int*)arg;
+    int roomId = *(int *) arg;
     //获取房间消息队列
     int room_queue_id = server.roomId_msgId[roomId];
-    while (true){
+    while (true) {
         msg m;
         int res = msgrcv(room_queue_id, &m, sizeof(OP), 0, 0);
         if (res == -1) {
@@ -502,6 +509,8 @@ void *msg_handler(void *arg) {
             case LEAVE_ROOM : {
                 //离开房间
                 Game *game = server.rooms[o.roomId];
+                //信号量保护
+                sem_wait(&game->sem);
                 for (auto it = game->players.begin(); it != game->players.end(); it++) {
                     if (it->id == o.playerId) {
                         game->players.erase(it);
@@ -523,11 +532,15 @@ void *msg_handler(void *arg) {
                         sendOperation(operation, server.playerid_fd[p.id]);
                     }
                 }
+                //释放信号量
+                sem_post(&game->sem);
                 break;
             }
             default: {
                 //根据玩家的id号，找到对应的房间，交给房间来处理，房间会返回block，server负责广播，前端会处理剩下的逻辑
                 Game &game = *server.rooms[o.roomId];
+                //信号量保护
+                sem_wait(&game.sem);
                 Operation *op = game.handle_message(o);
                 //操作可能失败，需要注意判断
                 if (op != nullptr) {
@@ -536,6 +549,8 @@ void *msg_handler(void *arg) {
                     }
                     free(op);
                 }
+                //释放信号量
+                sem_post(&game.sem);
                 //注意op
                 break;
             }
