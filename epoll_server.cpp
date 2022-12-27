@@ -138,6 +138,8 @@ public:
                         rooms.erase(it);
                         sem_post(&it->second->sem);
                         free(it->second);
+                        //删除消息队列
+                        msgctl(roomId_msgId[it->first], IPC_RMID, NULL);
                         pthread_mutex_unlock(&myMutex);//解锁
                         break;
                     }
@@ -516,7 +518,7 @@ void *msg_handler(void *arg) {
         Operation o;
         o.operationType = m.op.operationType;
         o.playerId = m.op.playerId;
-
+        o.roomId = roomId;
         //join handler接收到消息，输出日志
         cout << "msg_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
 
@@ -540,8 +542,13 @@ void *msg_handler(void *arg) {
                 //如果房间内没有人了，就删除房间
                 if (game->players.empty()) {
                     server.rooms.erase(o.roomId);
-                    free(game);
+
                     pthread_mutex_unlock(&server.myMutex);
+                    //删除消息队列
+                    msgctl(room_queue_id, IPC_RMID, NULL);
+                    sem_post(&game->sem);
+                    free(game);
+                    break;
                 } else {
                     pthread_mutex_unlock(&server.myMutex);
                     Operation operation = Operation();
