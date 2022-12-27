@@ -75,11 +75,6 @@ public:
         //处理来自客户端的消息，并且需要返回OPeration
         //首先判断操作类型，是否是加入游戏
         switch (o.operationType) {
-            case JOIN_ROOM : {
-                //找一个房间,如果没有合适的房间就创建一个房间，如果有就开始
-
-                break;
-            }
             case LEAVE_ROOM : {
                 //离开房间
                 Game *game = rooms[o.roomId];
@@ -465,6 +460,9 @@ void *join_handler(void *arg) {
                 perror("msgget");
                 exit(-1);
             }
+
+
+
             server.roomId_msgId[game->id] = room_queue_id;
             pthread_t tid;
             pthread_create(&tid, NULL, msg_handler, buf);
@@ -474,9 +472,63 @@ void *join_handler(void *arg) {
 }
 
 void *msg_handler(void *arg) {
+    //转化为房间id参数
+    pthread_detach(pthread_self());
+    int roomId = *(int*)arg;
+    //获取房间消息队列
+    int room_queue_id = server.roomId_msgId[roomId];
+    while (true){
+        msg m;
+        int res = msgrcv(room_queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
+        if (res == -1) {
+            perror("msgrcv");
+            exit(-1);
+        }
+        Operation o;
+        o.operationType = m.op.operationType;
+        o.playerId = m.op.playerId;
 
-
-
-
-
+        switch (o.operationType) {
+            case LEAVE_ROOM : {
+                //离开房间
+                Game *game = server.rooms[o.roomId];
+                for (auto it = game->players.begin(); it != game->players.end(); it++) {
+                    if (it->id == o.playerId) {
+                        game->players.erase(it);
+                        //释放文件描述符
+                        server.playerid_fd.erase(o.playerId);
+                        break;
+                    }
+                }
+                //如果房间内没有人了，就删除房间
+                if (game->players.empty()) {
+                    server.rooms.erase(o.roomId);
+                    free(game);
+                } else {
+                    //如果房间内还有人，就通知其他人
+                    Operation operation = Operation();
+                    operation.operationType = LEAVE_ROOM;
+                    operation.playerId = o.playerId;
+                    for (auto &p: game->players) {
+                        sendOperation(operation, server.playerid_fd[p.id]);
+                    }
+                }
+                break;
+            }
+            default: {
+                //根据玩家的id号，找到对应的房间，交给房间来处理，房间会返回block，server负责广播，前端会处理剩下的逻辑
+                Game &game = *server.rooms[o.roomId];
+                Operation *op = game.handle_message(o);
+                //操作可能失败，需要注意判断
+                if (op != nullptr) {
+                    for (auto &p: game.players) {
+                        sendOperation(*op, server.playerid_fd[p.id]);
+                    }
+                    free(op);
+                }
+                //注意op
+                break;
+            }
+        }
+    }
 }
