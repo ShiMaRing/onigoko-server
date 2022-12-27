@@ -11,6 +11,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <iostream>
+#include <thread>
+#include <pthread.h>
+#include <sys/msg.h>
+#include <sys/ipc.h>
 #include "include/json.hpp"
 
 using namespace std;
@@ -26,21 +30,38 @@ list<int> clients_list;
 
 #define BUF_SIZE 0xFFFF
 
+#define JOIN_KEY 1234 //加入游戏的消息队列key
+
+#define MSG_SIZE 1024 //消息传递结构体
+
+//消息传递结构体
+typedef struct msg {
+    int mtype;
+    char mtext[MSG_SIZE];
+} msg;
+
 //游戏服务器,主要是接收用户通信并且更新内部的服务器状态,允许同时运行多个房间
 int sendOperation(Operation o, int fd);
 
+//多线程共享资源，需要使用互斥锁维护资源
 class Server {
 public:
     map<int, Game *> rooms; //维护各个房间状态
     map<uint32_t, int> playerid_fd; //维护玩家id和fd的对应关系
+    pthread_mutex_t myMutex; //互斥锁,保护公共资源，game为私有资源
 
 public:
     Server() {
         //构造函数
         rooms = map<int, Game *>();
         playerid_fd = map<uint32_t, int>();
+        myMutex = PTHREAD_MUTEX_INITIALIZER;//初始化互斥锁
+        int queue = msgget(JOIN_ROOM, IPC_CREAT | 0666);
+        if (queue == -1) { //创建消息队列失败
+            perror("msgget");
+            exit(1);
+        }
     }
-
     void onMessage(Operation o, int fd) {
         //处理来自客户端的消息，并且需要返回OPeration
         //首先判断操作类型，是否是加入游戏
@@ -154,7 +175,6 @@ public:
             }
         }
     }
-
     void leaveRoom(const uint32_t i) {
         //离开房间
         for (auto it = rooms.begin(); it != rooms.end(); it++) {
@@ -242,7 +262,6 @@ public:
             }
         }
     };
-
     int sendOperation(Operation o, int fd) {
         //将Operation转换为json字符串
         json j = o;
@@ -263,7 +282,6 @@ public:
 
 //创建server
 Server server = Server();
-
 //维护全局游戏状态
 
 
@@ -309,7 +327,17 @@ int handle_message(int clientfd) {
         }
     } else {
         Operation operation = json2operation(buf);
-        //传递给server
+        //根据消息携带的信息，决定交给哪个消息队列处理
+        //如果消息是快速开始，交给专门的线程处理，通过消息队列传递
+        //否则，根据消息中的房间id号，传递给对应的房间线程处理，通过消息队列传递
+        //房间之间的资源，以及每个client对应的资源，都需要进行同步操作
+        //最后需要注意粘包问题的解决
+        if (operation.operationType == JOIN_ROOM){
+
+
+
+        }
+
         server.onMessage(operation, clientfd);
 
     }
@@ -331,7 +359,8 @@ Operation json2operation(const char *json_text) {
     return op;
 }
 
-
+//服务器改造，架构：epoll 监听到后，将消息放入队列，程池中的线程处理消息
+//然后将结果放入队列，然后由epoll监听到后，将结果发送给客户端
 int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddr;
     serverAddr.sin_family = PF_INET;
