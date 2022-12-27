@@ -75,6 +75,7 @@ public:
     typedef struct {
         int x, y;
     } Point;
+    sem_t sem; //信号量,保护当前的game对象
     int id;        //房间id号
     string state;  //房间状态
     int width;
@@ -89,7 +90,7 @@ public:
     vector<Player> players; //玩家
     Point gate1;//逃生门的位置
     Point gate2;
-    sem_t sem; //信号量,保护当前的game对象
+
 
 
 public:

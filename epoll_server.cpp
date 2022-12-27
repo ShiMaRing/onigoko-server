@@ -231,16 +231,24 @@ int sendOperation(Operation o, int fd) {
     //将Operation转换为json字符串
     json j = o;
     string s = j.dump();
-    //发送给客户端
-    int ret = send(fd, s.c_str(), s.size(), 0);
+    //需要注意添加上消息长度字段
+    uint32_t len = s.length();
+    //转化格式
+    uint32_t messageSizeNet = htonl(len);
+    char buf[4 + len];
+    //复制数据
+    memcpy(buf, &messageSizeNet, 4);
+    memcpy(buf + 4, s.c_str(), len);
+    //发送数据
+    int ret = send(fd, buf, len + 4, 0);
     if (ret == -1) {
-        cout << "send:" << s << "  fail" << endl;
+        cout << "send:" << buf << "  fail" << endl;
         perror("send error");
         close(fd);
         clients_list.remove(fd);
     }
     //输出日志
-    cout << "send:" << s << endl;
+    cout << "send:" << buf << endl;
     return ret;
 };
 
@@ -294,11 +302,9 @@ int handle_message(int clientfd) {
             //获取创建房间的消息队列,发送消息
             msgsnd(server.queue_id, &m, sizeof(OP), 0);
             //输出日志
-            cout << "发送消息到消息队列:" << buf << endl;
         } else {
             int queue_id = server.roomId_msgId[operation.roomId];
             msgsnd(queue_id, &m, sizeof(OP), 0);
-            cout << "发送消息到消息队列:" << buf << endl;
         }
     }
     return len;
@@ -306,8 +312,6 @@ int handle_message(int clientfd) {
 
 //json 字符串转operation结构体
 Operation json2operation(const char *json_text) {
-    //输出字符串
-    std::cout << json_text << std::endl;
     json json = json::parse(json_text);
     int operationType = json["operationType"];
     uint32_t playerId = json["playerId"];
@@ -430,7 +434,7 @@ void *join_handler(void *arg) {
                 isFinded = true;
                 printf("join_handler p1.5\n");
                 //检查是否到了四个人
-                if (item.second->players.size() == 4) {
+                if (item.second->players.size() == 2) {
                     //开始游戏,需要初始化游戏,并且返回初始化信息
                     item.second->initGraph();
                     //返回初始化信息
@@ -480,6 +484,7 @@ void *join_handler(void *arg) {
             game->players.push_back(player);
             //加锁
             pthread_mutex_lock(&server.myMutex);
+
             server.rooms[game->id] = game;
             //返回加入成功信息
             Operation operation = Operation();
@@ -488,6 +493,7 @@ void *join_handler(void *arg) {
             operation.players = game->players;
             int *buf = (int *) malloc(sizeof(int));
             *buf = game->id;
+            //创建房间专属的消息队列
             int room_queue_id = msgget(game->id, IPC_CREAT | 0666);
             if (room_queue_id == -1) {
                 perror("msgget");
@@ -520,8 +526,7 @@ void *msg_handler(void *arg) {
         o.operationType = m.op.operationType;
         o.playerId = m.op.playerId;
         o.roomId = roomId;
-        //join handler接收到消息，输出日志
-        cout << "msg_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
+
 
         switch (o.operationType) {
             case LEAVE_ROOM : {

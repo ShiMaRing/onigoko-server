@@ -36,10 +36,7 @@ const int ALL_KEYS_NUM = 6;
 const int NEEDED_FOUND_KEYS = 4;
 
 
-const int UP = 1001;
-const int DOWN = 1002;
-const int LEFT = 1003;
-const int RIGHT = 1004;
+
 
 
 const int GAME_WAITING = 0;
@@ -50,9 +47,7 @@ const int GAME_ENDED = 2;
 
 
 //消息类型
-const int CREATE_ROOM = 50;
 const int JOIN_ROOM = 51;
-const int MOVE = 52;
 const int PLACE_MINE = 53;
 const int OPEN_LIGHT = 54;
 const int CLOSE_LIGHT = 55;
@@ -60,13 +55,14 @@ const int RECOVER_FROM_DIZZINESS = 56;
 const int UPDATE = 57;//更新客户端资源
 const int GAME_START = 58;//初始化地图资源
 const int GAME_END = 59;//游戏结束
-
 const int LEAVE_ROOM = 60;
 const int HEART_BEAT = 61;
 const int JOIN_FAIL = 62;
-
 const int JOIN_SUCCESS = 63;
-
+const int UP = 1001;
+const int DOWN = 1002;
+const int LEFT = 1003;
+const int RIGHT = 1004;
 
 const string Ghost = "ghost";
 const string P1 = "p1";
