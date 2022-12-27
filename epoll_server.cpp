@@ -32,7 +32,7 @@ list<int> clients_list;
 
 #define JOIN_KEY 1234 //加入游戏的消息队列key
 
-#define MSG_SIZE 1024 //消息传递结构体
+#define SERVER_SEG 456 //服务器级别的同步信号量，用来维护map资源
 
 typedef struct MyOperation {
     int operationType;
@@ -64,7 +64,7 @@ public:
         rooms = map<int, Game *>();
         playerid_fd = map<uint32_t, int>();
         myMutex = PTHREAD_MUTEX_INITIALIZER;//初始化互斥锁
-        queue_id = msgget(JOIN_ROOM, IPC_CREAT | 0666);
+        queue_id = msgget(JOIN_KEY, IPC_CREAT | 0666);
         if (queue_id == -1) { //创建消息队列失败
             perror("msgget");
             exit(1);
@@ -206,28 +206,27 @@ public:
         }
     };
 
-    int sendOperation(Operation o, int fd) {
-        //将Operation转换为json字符串
-        json j = o;
-        string s = j.dump();
-        //发送给客户端
-        int ret = send(fd, s.c_str(), s.size(), 0);
-        if (ret == -1) {
-            cout << "send:" << s << "  fail" << endl;
-            perror("send error");
-            close(fd);
-            clients_list.remove(fd);
-        }
-        //输出日志
-        cout << "send:" << s << endl;
-        return ret;
-    };
 };
 
 //创建server
 Server server = Server();
 //维护全局游戏状态
-
+int sendOperation(Operation o, int fd) {
+    //将Operation转换为json字符串
+    json j = o;
+    string s = j.dump();
+    //发送给客户端
+    int ret = send(fd, s.c_str(), s.size(), 0);
+    if (ret == -1) {
+        cout << "send:" << s << "  fail" << endl;
+        perror("send error");
+        close(fd);
+        clients_list.remove(fd);
+    }
+    //输出日志
+    cout << "send:" << s << endl;
+    return ret;
+};
 
 int setnonblocking(int sockfd) {
     fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFD, 0) | O_NONBLOCK);
@@ -245,7 +244,6 @@ void addfd(int epollfd, int fd, bool enable_et) {
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev);
     setnonblocking(fd);
 }
-
 
 int handle_message(int clientfd) {
     char buf[BUF_SIZE], message[BUF_SIZE];
@@ -278,10 +276,13 @@ int handle_message(int clientfd) {
         m.mtype = operation.operationType;
         if (operation.operationType == JOIN_ROOM) {
             //获取创建房间的消息队列,发送消息
-            msgsnd(server.queue_id, &m, sizeof(OP), IPC_NOWAIT);
+            msgsnd(server.queue_id, &m, sizeof(OP), 0);
+            //输出日志
+            cout << "发送消息到消息队列:" << buf << endl;
         } else {
             int queue_id = server.roomId_msgId[operation.roomId];
-            msgsnd(queue_id, &m, sizeof(OP), IPC_NOWAIT);
+            msgsnd(queue_id, &m, sizeof(OP), 0);
+            cout << "发送消息到消息队列:" << buf << endl;
         }
     }
     return len;
@@ -310,8 +311,10 @@ void *msg_handler(void *arg);
 //然后将结果放入队列，然后由epoll监听到后，将结果发送给客户端
 int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddr;
+
     pthread_t join_thread;
     pthread_create(&join_thread, NULL, join_handler, NULL);
+
     serverAddr.sin_family = PF_INET;
     serverAddr.sin_port = htons(SERVER_PORT);
     serverAddr.sin_addr.s_addr = inet_addr(SERVER_IP);
@@ -380,12 +383,16 @@ int main(int argc, char *argv[]) {
 }
 
 void *join_handler(void *arg) {
+     int queue_id = msgget(JOIN_KEY,  0666);
+     if (queue_id < 0) {
+            perror("msgget");
+            exit(-1);
+     }
     while (true) {
         msg m;
-        int res = msgrcv(server.queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
+        int res = msgrcv(queue_id, &m, sizeof(OP), 0, 0);
         if (res == -1) {
             perror("msgrcv");
-            exit(-1);
         }
         Operation o;
         o.operationType = m.op.operationType;
@@ -393,6 +400,9 @@ void *join_handler(void *arg) {
         int clientfd = m.op.clientFd;
         server.playerid_fd[o.playerId] = clientfd;
         bool isFinded;
+        //join handler接收到消息，输出日志
+        cout << "join_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
+
         for (auto &item: server.rooms) {
             if (item.second->players.size() < 4) {
                 //将该用户加入房间，需要根据用户信息创建一个player
@@ -433,7 +443,7 @@ void *join_handler(void *arg) {
                             sendOperation(operation, server.playerid_fd[p.id]);
                         } else {
                             operation.operationType = JOIN_ROOM;
-                            sendOperation(operation, server.playerid_fd[p.id]);
+                           sendOperation(operation, server.playerid_fd[p.id]);
                         }
                     }
                 }
@@ -460,9 +470,6 @@ void *join_handler(void *arg) {
                 perror("msgget");
                 exit(-1);
             }
-
-
-
             server.roomId_msgId[game->id] = room_queue_id;
             pthread_t tid;
             pthread_create(&tid, NULL, msg_handler, buf);
@@ -479,7 +486,7 @@ void *msg_handler(void *arg) {
     int room_queue_id = server.roomId_msgId[roomId];
     while (true){
         msg m;
-        int res = msgrcv(room_queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
+        int res = msgrcv(room_queue_id, &m, sizeof(OP), 0, 0);
         if (res == -1) {
             perror("msgrcv");
             exit(-1);
@@ -487,6 +494,9 @@ void *msg_handler(void *arg) {
         Operation o;
         o.operationType = m.op.operationType;
         o.playerId = m.op.playerId;
+
+        //join handler接收到消息，输出日志
+        cout << "msg_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
 
         switch (o.operationType) {
             case LEAVE_ROOM : {
