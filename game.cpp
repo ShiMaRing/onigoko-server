@@ -209,7 +209,7 @@ bool Game::Lighting(uint32_t playerId) {
     for (Player &item: players) {
         if (item.id == playerId) {
             //死亡或者已逃跑则不允许执行该操作,操作合法性由客户端进行判断
-            if (item.lights <= 0 || item.isDead || item.isEscaped || item.identity == GHOST) {
+            if (item.lights <= 0 || item.isDead || item.isEscaped || item.identity == GHOST||item.isLighting) {
                 return false;
             }
             item.isLighting = true;
@@ -445,6 +445,7 @@ Operation *Game::handle_message(Operation o) {
             }
             //需要更新大门状态
             if (isDoorOpen) {
+                op->message = "door is opened!";
                 blocks[gate1.x][gate1.y].blockType = GATE;
                 blocks[gate2.x][gate2.y].blockType = GATE;
                 op->blocks.push_back(blocks[gate1.x][gate1.y]);

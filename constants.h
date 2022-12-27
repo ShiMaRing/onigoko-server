@@ -28,10 +28,10 @@ const int GATE = 9;
 const int DEAD = 10;
 
 
-const int initLighting = 3;
+const int initLighting = 2;
 const int initMines = 1;
-const int GraphWith = 77;
-const int GraphHeight = 41;
+const int GraphWith = 67;
+const int GraphHeight = 37;
 const int ALL_KEYS_NUM = 6;
 const int NEEDED_FOUND_KEYS = 4;
 

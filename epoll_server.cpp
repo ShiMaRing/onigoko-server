@@ -158,15 +158,87 @@ public:
     void leaveRoom(const uint32_t i) {
         //离开房间
         for (auto it = rooms.begin(); it != rooms.end(); it++) {
+            bool isFinded = false;
             for (auto it2 = it->second->players.begin(); it2 != it->second->players.end(); it2++) {
                 if (it2->id == i) {
-                    it->second->players.erase(it2);
+                    isFinded = true;
+                    bool isGameStart = false;
+                    if (it->second->players.size() == 2) {
+                        isGameStart = true;
+                    }
                     //检查房间是否为空
-                    if (it->second->players.empty()) {
+                    if (it->second->players.size()==1) {
+                        it->second->players.erase(it2);
                         rooms.erase(it);
+                        free(it->second);
                         break;
                     }
+
+                    if (isGameStart) {
+                        if (it2->identity == GHOST) {
+                            Operation operation = Operation();
+                            operation.operationType = GAME_END;
+                            operation.message = "ghost leave room , human win!";
+                            operation.roomId = it->second->id;
+
+                            it->second->players.erase(it2);
+
+                            for (auto &p: it->second->players) {
+                                sendOperation(operation, playerid_fd[p.id]);
+                            }
+                            return;
+                        } else {
+                            //死亡人数+1
+                            it->second->deadNums++;
+                            //检查死亡人数
+                            if (it->second->deadNums >= 2) {
+                                Operation operation = Operation();
+                                operation.operationType = GAME_END;
+                                operation.message = "Ghost win!";
+                                operation.roomId = it->second->id;
+                                it->second->players.erase(it2);
+                                for (auto &p: it->second->players) {
+                                    sendOperation(operation, playerid_fd[p.id]);
+                                }
+                                //释放资源
+                                return;
+                            } else {
+                                ostringstream buffer;
+                                Operation operation = Operation();
+                                operation.operationType = UPDATE;
+                                buffer << it2->nickName << " leave room";
+                                operation.message = buffer.str();
+                                it2.operator*().isDead = true;
+                                operation.players.push_back(*it2);
+                                operation.roomId = it->second->id;
+
+                                it->second->players.erase(it2);
+
+                                for (auto &p: it->second->players) {
+                                    sendOperation(operation, playerid_fd[p.id]);
+                                }
+                                return;
+                            }
+                        }
+                    } else {
+                        //通知其他人，有人离开房间
+                        Operation operation = Operation();
+                        operation.operationType = LEAVE_ROOM;
+                        operation.playerId = i;
+                        operation.roomId = it->second->id;
+
+                        it->second->players.erase(it2);
+
+                        for (auto &p: it->second->players) {
+                            sendOperation(operation, playerid_fd[p.id]);
+                        }
+                        return;
+                    }
+                    break;
                 }
+            }
+            if (isFinded) {
+                break;
             }
         }
     };
