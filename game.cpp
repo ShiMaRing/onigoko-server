@@ -363,13 +363,15 @@ Block *Game::Move(uint32_t playerId, int direct, vector<Player> &v, string &mess
                     //可能吃钥匙
                     if (blocks[x][y].blockType == KEY) {
                         buffer << item.nickName << " find a key!";
-                        message = buffer.str();
                         foundKeys++;
                         blocks[x][y].blockType = ROAD;//钥匙消失
                         //可能会更新大门
                         if (foundKeys >= NEEDED_FOUND_KEYS) {
                             isDoorOpen = true;//此时需要更新大门
+                            buffer.clear();
+                            buffer << "Door is opened!";
                         }
+                        message = buffer.str();
                         block = &blocks[x][y];
                         return block;
                     } else if (blocks[x][y].blockType == GATE) {//跑到大门处
@@ -449,7 +451,6 @@ Operation *Game::handle_message(Operation o) {
             }
             //需要更新大门状态
             if (isDoorOpen) {
-                op->message = "door is opened!";
                 blocks[gate1.x][gate1.y].blockType = GATE;
                 blocks[gate2.x][gate2.y].blockType = GATE;
                 op->blocks.push_back(blocks[gate1.x][gate1.y]);
