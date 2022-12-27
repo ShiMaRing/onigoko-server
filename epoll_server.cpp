@@ -135,13 +135,13 @@ public:
                     //检查房间是否为空
                     if (it->second->players.size() == 1) {
                         it->second->players.erase(it2);
-                        rooms.erase(it);
                         sem_post(&it->second->sem);
                         free(it->second);
+                        rooms.erase(it);
                         //删除消息队列
                         msgctl(roomId_msgId[it->first], IPC_RMID, NULL);
                         pthread_mutex_unlock(&myMutex);//解锁
-                        break;
+                        return;
                     }
 
                     if (isGameStart) {
@@ -217,11 +217,8 @@ public:
                     }
                 }
             }
-            if (isFinded) {
-                break;
-            }
         }
-
+        pthread_mutex_lock(&myMutex);
     };
 
 };
@@ -411,18 +408,19 @@ void *join_handler(void *arg) {
         msg m;
         int res = msgrcv(queue_id, &m, sizeof(OP), 0, 0);
         if (res == -1) {
-            perror("msgrcv");
+            perror("join_handler exit");
         }
         Operation o;
         o.operationType = m.op.operationType;
         o.playerId = m.op.playerId;
         int clientfd = m.op.clientFd;
         server.playerid_fd[o.playerId] = clientfd;
-        bool isFinded;
+        bool isFinded = false;
         //join handler接收到消息，输出日志
         cout << "join_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
 
         for (auto &item: server.rooms) {
+            printf("join_handler p1.5\n");
             if (item.second->players.size() < 4) {
                 //将该用户加入房间，需要根据用户信息创建一个player，信号量
                 sem_wait(&item.second->sem);
@@ -430,8 +428,9 @@ void *join_handler(void *arg) {
                 player.id = o.playerId;
                 item.second->players.push_back(player);
                 isFinded = true;
+                printf("join_handler p1.5\n");
                 //检查是否到了四个人
-                if (item.second->players.size() == 2) {
+                if (item.second->players.size() == 4) {
                     //开始游戏,需要初始化游戏,并且返回初始化信息
                     item.second->initGraph();
                     //返回初始化信息
@@ -474,10 +473,12 @@ void *join_handler(void *arg) {
         }
         if (!isFinded) {
             //创建一个房间,还需要创建对应的消息队列以及启动新的线程
+            printf("join_handler p2\n");
             Game *game = new Game();
             Player player = Player();
             player.id = o.playerId;
             game->players.push_back(player);
+            //加锁
             pthread_mutex_lock(&server.myMutex);
             server.rooms[game->id] = game;
             //返回加入成功信息
@@ -487,13 +488,13 @@ void *join_handler(void *arg) {
             operation.players = game->players;
             int *buf = (int *) malloc(sizeof(int));
             *buf = game->id;
-
             int room_queue_id = msgget(game->id, IPC_CREAT | 0666);
             if (room_queue_id == -1) {
                 perror("msgget");
                 exit(-1);
             }
             server.roomId_msgId[game->id] = room_queue_id;
+            //解锁
             pthread_mutex_unlock(&server.myMutex);
             pthread_t tid;
             pthread_create(&tid, NULL, msg_handler, buf);
@@ -512,8 +513,8 @@ void *msg_handler(void *arg) {
         msg m;
         int res = msgrcv(room_queue_id, &m, sizeof(OP), 0, 0);
         if (res == -1) {
-            perror("msgrcv");
-            exit(-1);
+            perror("msg_handler");
+            break;
         }
         Operation o;
         o.operationType = m.op.operationType;
@@ -542,7 +543,6 @@ void *msg_handler(void *arg) {
                 //如果房间内没有人了，就删除房间
                 if (game->players.empty()) {
                     server.rooms.erase(o.roomId);
-
                     pthread_mutex_unlock(&server.myMutex);
                     //删除消息队列
                     msgctl(room_queue_id, IPC_RMID, NULL);
