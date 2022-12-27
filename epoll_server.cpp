@@ -25,7 +25,7 @@ list<int> clients_list;
 
 #define SERVER_IP "127.0.0.1"
 
-#define SERVER_PORT 8888
+#define SERVER_PORT 8889
 
 #define EPOLL_SIZE 5000
 
@@ -156,6 +156,8 @@ public:
                             for (auto &p: it->second->players) {
                                 sendOperation(operation, p.fd);
                             }
+                            //删除所有玩家
+                            it->second->players.clear();
                             sem_post(&it->second->sem);
 
                             return;
@@ -174,6 +176,8 @@ public:
                                 for (auto &p: it->second->players) {
                                     sendOperation(operation, p.fd);
                                 }
+                                //删除所有玩家
+                                it->second->players.clear();
                                 sem_post(&it->second->sem);
                                 //释放资源
                                 return;
@@ -210,6 +214,10 @@ public:
 
                         for (auto &p: it->second->players) {
                             sendOperation(operation, p.fd);
+                        }
+                        //如果是游戏结束，需要删除所有的玩家
+                        if (operation.operationType==GAME_END) {
+                            it->second->players.clear();
                         }
                         sem_post(&it->second->sem);
                         return;
@@ -326,7 +334,7 @@ void *join_handler(void *arg);
 
 void *msg_handler(void *arg);
 
-//服务器改造，架构：epoll 监听到后，将消息放入队列，程池中的线程处理消息
+//epoll 监听到后，将消息放入队列，程池中的线程处理消息
 //然后将结果放入队列，然后由epoll监听到后，将结果发送给客户端
 int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddr;

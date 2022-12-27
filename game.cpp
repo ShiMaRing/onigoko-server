@@ -362,14 +362,14 @@ Block *Game::Move(uint32_t playerId, int direct, vector<Player> &v, string &mess
                 case HUMAN:
                     //可能吃钥匙
                     if (blocks[x][y].blockType == KEY) {
-                        buffer << item.nickName << " find a key!";
                         foundKeys++;
                         blocks[x][y].blockType = ROAD;//钥匙消失
                         //可能会更新大门
                         if (foundKeys >= NEEDED_FOUND_KEYS) {
                             isDoorOpen = true;//此时需要更新大门
-                            buffer.clear();
                             buffer << "Door is opened!";
+                        } else{
+                            buffer << item.nickName << " find a key!";
                         }
                         message = buffer.str();
                         block = &blocks[x][y];
