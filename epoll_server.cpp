@@ -34,10 +34,16 @@ list<int> clients_list;
 
 #define MSG_SIZE 1024 //消息传递结构体
 
+typedef struct MyOperation {
+    int operationType;
+    int clientFd;
+    uint32_t playerId;
+} OP;
+
 //消息传递结构体
 typedef struct msg {
     int mtype;
-    char mtext[MSG_SIZE];
+    OP op;
 } msg;
 
 //游戏服务器,主要是接收用户通信并且更新内部的服务器状态,允许同时运行多个房间
@@ -48,7 +54,9 @@ class Server {
 public:
     map<int, Game *> rooms; //维护各个房间状态
     map<uint32_t, int> playerid_fd; //维护玩家id和fd的对应关系
+    map<int,int> roomId_msgId; //维护房间id和消息队列id的对应关系
     pthread_mutex_t myMutex; //互斥锁,保护公共资源，game为私有资源
+    int queue_id; //加入房间消息专用消息队列
 
 public:
     Server() {
@@ -56,12 +64,13 @@ public:
         rooms = map<int, Game *>();
         playerid_fd = map<uint32_t, int>();
         myMutex = PTHREAD_MUTEX_INITIALIZER;//初始化互斥锁
-        int queue = msgget(JOIN_ROOM, IPC_CREAT | 0666);
-        if (queue == -1) { //创建消息队列失败
+        queue_id = msgget(JOIN_ROOM, IPC_CREAT | 0666);
+        if (queue_id == -1) { //创建消息队列失败
             perror("msgget");
             exit(1);
         }
     }
+
     void onMessage(Operation o, int fd) {
         //处理来自客户端的消息，并且需要返回OPeration
         //首先判断操作类型，是否是加入游戏
@@ -175,6 +184,7 @@ public:
             }
         }
     }
+
     void leaveRoom(const uint32_t i) {
         //离开房间
         for (auto it = rooms.begin(); it != rooms.end(); it++) {
@@ -187,7 +197,7 @@ public:
                         isGameStart = true;
                     }
                     //检查房间是否为空
-                    if (it->second->players.size()==1) {
+                    if (it->second->players.size() == 1) {
                         it->second->players.erase(it2);
                         rooms.erase(it);
                         free(it->second);
@@ -262,6 +272,7 @@ public:
             }
         }
     };
+
     int sendOperation(Operation o, int fd) {
         //将Operation转换为json字符串
         json j = o;
@@ -308,9 +319,6 @@ int handle_message(int clientfd) {
     bzero(buf, BUF_SIZE);
     bzero(message, BUF_SIZE);
 
-    // receive message
-    printf("read from client(clientID = %d)\n", clientfd);
-
     //从客户端接受消息，为一串json字符串
     int len = recv(clientfd, buf, BUF_SIZE, 0);
     if (len <= 0) {
@@ -326,20 +334,23 @@ int handle_message(int clientfd) {
             }
         }
     } else {
+        //实现消息的分发
         Operation operation = json2operation(buf);
-        //根据消息携带的信息，决定交给哪个消息队列处理
-        //如果消息是快速开始，交给专门的线程处理，通过消息队列传递
-        //否则，根据消息中的房间id号，传递给对应的房间线程处理，通过消息队列传递
-        //房间之间的资源，以及每个client对应的资源，都需要进行同步操作
-        //最后需要注意粘包问题的解决
-        if (operation.operationType == JOIN_ROOM){
-
-
-
+        msg m;
+        OP op;
+        op.clientFd = clientfd;
+        op.playerId = operation.playerId;
+        op.operationType = operation.operationType;
+        m.op = op;
+        m.mtype = operation.operationType;
+        if (operation.operationType == JOIN_ROOM) {
+            //获取创建房间的消息队列,发送消息
+            msgsnd(server.queue_id, &m, sizeof(OP), IPC_NOWAIT);
+        }else
+        {
+            int queue_id = server.roomId_msgId[operation.roomId];
+            msgsnd(queue_id, &m, sizeof(OP), IPC_NOWAIT);
         }
-
-        server.onMessage(operation, clientfd);
-
     }
     return len;
 }
