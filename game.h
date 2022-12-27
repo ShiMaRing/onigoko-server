@@ -9,6 +9,7 @@
 #include "vector"
 #include "map"
 #include "include/json.hpp"
+#include <semaphore.h> //信号量
 
 using namespace std;
 
@@ -32,6 +33,7 @@ public:
     bool isEscaped;//是否成功逃跑
     bool isDead; //当前玩家是否死亡
     bool isDizziness;//是否被晕眩
+
 public:
     Player(uint32_t id, int identity);
 
@@ -87,6 +89,8 @@ public:
     vector<Player> players; //玩家
     Point gate1;//逃生门的位置
     Point gate2;
+    sem_t sem; //信号量,保护当前的game对象
+
 
 public:
     //初始化Graph,绘制地图,需要初始化各个block，随机生成边缘地块，钥匙，四个玩家位置

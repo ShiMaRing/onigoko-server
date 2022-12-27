@@ -392,6 +392,8 @@ Block *Game::Move(uint32_t playerId, int direct, vector<Player> &v, string &mess
 
 
 Game::Game() {
+    //初始化信号量
+    sem_init(&sem, 0, 1);
     players = vector<Player>();
     blocks = vector<vector<Block>>();
     srand((unsigned) time(NULL));

@@ -16,6 +16,7 @@
 #include <sys/msg.h>
 #include <sys/ipc.h>
 #include "include/json.hpp"
+#include <semaphore.h>
 
 using namespace std;
 using json = nlohmann::json;
@@ -57,7 +58,6 @@ public:
     map<int, int> roomId_msgId; //维护房间id和消息队列id的对应关系
     pthread_mutex_t myMutex; //互斥锁,保护公共资源，game为私有资源
     int queue_id; //加入房间消息专用消息队列
-
 public:
     Server() {
         //构造函数
