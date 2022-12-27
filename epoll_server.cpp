@@ -370,10 +370,15 @@ Operation json2operation(const char *json_text) {
     return op;
 }
 
+void* join_handler(void* arg);
+void* msg_handler(void* arg);
+
 //服务器改造，架构：epoll 监听到后，将消息放入队列，程池中的线程处理消息
 //然后将结果放入队列，然后由epoll监听到后，将结果发送给客户端
 int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddr;
+    pthread_t join_thread;
+    pthread_create(&join_thread, NULL, join_handler, NULL);
     serverAddr.sin_family = PF_INET;
     serverAddr.sin_port = htons(SERVER_PORT);
     serverAddr.sin_addr.s_addr = inet_addr(SERVER_IP);
@@ -439,4 +444,28 @@ int main(int argc, char *argv[]) {
     close(listen_fd);
     close(epfd);
     return 0;
+}
+
+void* join_handler(void* arg)
+{
+    while (true)
+    {
+        msg m;
+        int res=msgrcv(server.queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
+        if (res == -1)
+        {
+            perror("msgrcv");
+            exit(-1);
+        }
+        Operation op ;
+        op.operationType = m.op.operationType;
+        op.playerId = m.op.playerId;
+        int clientfd = m.op.clientFd;
+
+
+
+
+
+
+    }
 }
