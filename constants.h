@@ -35,7 +35,7 @@ const int GraphHeight = 37;
 const int ALL_KEYS_NUM = 6;
 const int NEEDED_FOUND_KEYS = 4;
 
-
+const int USER_COUNT=4;
 
 
 

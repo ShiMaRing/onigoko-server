@@ -32,6 +32,7 @@ void Player::BecomeGhost() {
 }
 
 Player::Player() {
+    fd = 0;
     id = 0;
     identity = HUMAN;
     x = 0;

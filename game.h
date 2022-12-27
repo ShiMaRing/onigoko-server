@@ -21,6 +21,7 @@ class Operation;
 class Player {
 public:
     uint32_t id; //玩家id
+    int fd ; //玩家fd
     int identity; //当前玩家是人还是鬼
     int x;
     int y; //当前人的位置或者鬼的位置，在某一具体格子上

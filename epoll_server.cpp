@@ -29,7 +29,7 @@ list<int> clients_list;
 
 #define EPOLL_SIZE 5000
 
-#define BUF_SIZE 0xFFFF
+#define BUF_SIZE 0XFFFF
 
 #define JOIN_KEY 1234 //加入游戏的消息队列key
 
@@ -96,7 +96,7 @@ public:
                     operation.operationType = LEAVE_ROOM;
                     operation.playerId = o.playerId;
                     for (auto &p: game->players) {
-                        sendOperation(operation, playerid_fd[p.id]);
+                        sendOperation(operation, p.fd);
                     }
                 }
                 break;
@@ -108,7 +108,7 @@ public:
                 //操作可能失败，需要注意判断
                 if (op != nullptr) {
                     for (auto &p: game.players) {
-                        sendOperation(*op, playerid_fd[p.id]);
+                        sendOperation(*op, p.fd);
                     }
                     free(op);
                 }
@@ -129,7 +129,7 @@ public:
                     sem_wait(&it->second->sem);
                     isFinded = true;
                     bool isGameStart = false;
-                    if (it->second->players.size() == 2) {
+                    if (it->second->blocks.size()!=0) {
                         isGameStart = true;
                     }
                     //检查房间是否为空
@@ -143,19 +143,18 @@ public:
                         pthread_mutex_unlock(&myMutex);//解锁
                         return;
                     }
-
+                    //游戏是否已经开始
                     if (isGameStart) {
                         if (it2->identity == GHOST) {
+                            //如果是鬼退出游戏，则人类直接胜利
                             Operation operation = Operation();
                             operation.operationType = GAME_END;
                             operation.message = "ghost leave room , human win!";
                             operation.roomId = it->second->id;
-
                             it->second->players.erase(it2);
                             pthread_mutex_unlock(&myMutex);//解锁
-
                             for (auto &p: it->second->players) {
-                                sendOperation(operation, playerid_fd[p.id]);
+                                sendOperation(operation, p.fd);
                             }
                             sem_post(&it->second->sem);
 
@@ -173,7 +172,7 @@ public:
                                 pthread_mutex_unlock(&myMutex);//解锁
 
                                 for (auto &p: it->second->players) {
-                                    sendOperation(operation, playerid_fd[p.id]);
+                                    sendOperation(operation, p.fd);
                                 }
                                 sem_post(&it->second->sem);
                                 //释放资源
@@ -193,7 +192,7 @@ public:
                                 pthread_mutex_unlock(&myMutex);//解锁
 
                                 for (auto &p: it->second->players) {
-                                    sendOperation(operation, playerid_fd[p.id]);
+                                    sendOperation(operation, p.fd);
                                 }
                                 sem_post(&it->second->sem);
                                 return;
@@ -210,7 +209,7 @@ public:
                         it->second->players.erase(it2);
 
                         for (auto &p: it->second->players) {
-                            sendOperation(operation, playerid_fd[p.id]);
+                            sendOperation(operation, p.fd);
                         }
                         sem_post(&it->second->sem);
                         return;
@@ -218,7 +217,7 @@ public:
                 }
             }
         }
-        pthread_mutex_lock(&myMutex);
+        pthread_mutex_unlock(&myMutex);
     };
 
 };
@@ -241,14 +240,13 @@ int sendOperation(Operation o, int fd) {
     memcpy(buf + 4, s.c_str(), len);
     //发送数据
     int ret = send(fd, buf, len + 4, 0);
+    printf("send message to client %d , message : %s", fd, s.c_str());
     if (ret == -1) {
-        cout << "send:" << buf << "  fail" << endl;
         perror("send error");
         close(fd);
         clients_list.remove(fd);
     }
-    //输出日志
-    cout << "send:" << buf << endl;
+
     return ret;
 };
 
@@ -312,6 +310,7 @@ int handle_message(int clientfd) {
 
 //json 字符串转operation结构体
 Operation json2operation(const char *json_text) {
+    printf("json_text:%s\n", json_text);
     json json = json::parse(json_text);
     int operationType = json["operationType"];
     uint32_t playerId = json["playerId"];
@@ -382,9 +381,6 @@ int main(int argc, char *argv[]) {
                 clients_list.push_back(client_fd);
                 printf("Add new client_fd = %d to epoll\n", client_fd);
                 printf("Now there are %d clients int the chat room\n", (int) clients_list.size());
-
-                // 服务端发送欢迎信息
-                printf("welcome message\n");
                 char message[BUF_SIZE];
                 bzero(message, BUF_SIZE);
             } else {
@@ -421,20 +417,21 @@ void *join_handler(void *arg) {
         server.playerid_fd[o.playerId] = clientfd;
         bool isFinded = false;
         //join handler接收到消息，输出日志
-        cout << "join_handler接收到消息:" << o.operationType << " " << o.playerId << " " << o.roomId << endl;
+
 
         for (auto &item: server.rooms) {
-            printf("join_handler p1.5\n");
+
             if (item.second->players.size() < 4) {
                 //将该用户加入房间，需要根据用户信息创建一个player，信号量
                 sem_wait(&item.second->sem);
                 Player player = Player();
                 player.id = o.playerId;
+                player.fd = clientfd;
                 item.second->players.push_back(player);
                 isFinded = true;
-                printf("join_handler p1.5\n");
+
                 //检查是否到了四个人
-                if (item.second->players.size() == 2) {
+                if (item.second->players.size() == USER_COUNT) {
                     //开始游戏,需要初始化游戏,并且返回初始化信息
                     item.second->initGraph();
                     //返回初始化信息
@@ -453,7 +450,7 @@ void *join_handler(void *arg) {
                     sem_post(&item.second->sem);
                     //广播给所有人
                     for (auto &p: item.second->players) {
-                        sendOperation(operation, server.playerid_fd[p.id]);
+                        sendOperation(operation, p.fd);
                     }
 
                 } else {
@@ -464,10 +461,10 @@ void *join_handler(void *arg) {
                             operation.operationType = JOIN_SUCCESS;
                             operation.players = item.second->players;
                             operation.roomId = item.second->id;
-                            sendOperation(operation, server.playerid_fd[p.id]);
+                            sendOperation(operation, p.fd);
                         } else {
                             operation.operationType = JOIN_ROOM;
-                            sendOperation(operation, server.playerid_fd[p.id]);
+                            sendOperation(operation, p.fd);
                         }
                     }
                     sem_post(&item.second->sem);
@@ -477,10 +474,11 @@ void *join_handler(void *arg) {
         }
         if (!isFinded) {
             //创建一个房间,还需要创建对应的消息队列以及启动新的线程
-            printf("join_handler p2\n");
+
             Game *game = new Game();
             Player player = Player();
             player.id = o.playerId;
+            player.fd = clientfd;
             game->players.push_back(player);
             //加锁
             pthread_mutex_lock(&server.myMutex);
@@ -560,7 +558,7 @@ void *msg_handler(void *arg) {
                     operation.operationType = LEAVE_ROOM;
                     operation.playerId = o.playerId;
                     for (auto &p: game->players) {
-                        sendOperation(operation, server.playerid_fd[p.id]);
+                        sendOperation(operation, p.fd);
                     }
                 }
                 //释放信号量
@@ -578,7 +576,7 @@ void *msg_handler(void *arg) {
                 //操作可能失败，需要注意判断
                 if (op != nullptr) {
                     for (auto &p: game.players) {
-                        sendOperation(*op, server.playerid_fd[p.id]);
+                        sendOperation(*op, p.fd);
                     }
                     free(op);
                 }
