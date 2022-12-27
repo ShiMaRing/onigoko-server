@@ -54,7 +54,7 @@ class Server {
 public:
     map<int, Game *> rooms; //维护各个房间状态
     map<uint32_t, int> playerid_fd; //维护玩家id和fd的对应关系
-    map<int,int> roomId_msgId; //维护房间id和消息队列id的对应关系
+    map<int, int> roomId_msgId; //维护房间id和消息队列id的对应关系
     pthread_mutex_t myMutex; //互斥锁,保护公共资源，game为私有资源
     int queue_id; //加入房间消息专用消息队列
 
@@ -77,69 +77,7 @@ public:
         switch (o.operationType) {
             case JOIN_ROOM : {
                 //找一个房间,如果没有合适的房间就创建一个房间，如果有就开始
-                playerid_fd[o.playerId] = fd;
-                bool isFinded;
-                for (auto &item: rooms) {
-                    if (item.second->players.size() < 4) {
-                        //将该用户加入房间，需要根据用户信息创建一个player
-                        Player player = Player();
-                        player.id = o.playerId;
-                        item.second->players.push_back(player);
-                        isFinded = true;
-                        //检查是否到了四个人
-                        if (item.second->players.size() == 2) {
-                            //开始游戏,需要初始化游戏,并且返回初始化信息
-                            item.second->initGraph();
-                            //返回初始化信息
-                            Operation operation = Operation();
-                            operation.operationType = GAME_START;
-                            operation.players = item.second->players;
 
-                            //将所有的房间地块信息返回，作为初始化地图数据
-                            operation.blocks = vector<Block>();
-                            for (int i = 0; i < item.second->height; ++i) {
-                                for (int j = 0; j < item.second->width; ++j) {
-                                    operation.blocks.push_back(item.second->blocks[i][j]);
-                                }
-                            }
-                            operation.roomId = item.second->id;
-                            //广播给所有人
-                            for (auto &p: item.second->players) {
-                                sendOperation(operation, playerid_fd[p.id]);
-                            }
-                            return;
-                        } else {
-                            //返回加入成功信息，对于当前房间内其他玩家，是有人加入了，对于刚加入的玩家，是加入成功
-                            Operation operation = Operation();
-                            for (auto &p: item.second->players) {
-                                if (p.id == o.playerId) {
-                                    operation.operationType = JOIN_SUCCESS;
-                                    operation.players = item.second->players;
-                                    operation.roomId = item.second->id;
-                                    sendOperation(operation, playerid_fd[p.id]);
-                                } else {
-                                    operation.operationType = JOIN_ROOM;
-                                    sendOperation(operation, playerid_fd[p.id]);
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-                if (!isFinded) {
-                    //创建一个房间
-                    Game *game = new Game();
-                    Player player = Player();
-                    player.id = o.playerId;
-                    game->players.push_back(player);
-                    rooms[game->id] = game;
-                    //返回加入成功信息
-                    Operation operation = Operation();
-                    operation.operationType = JOIN_SUCCESS;
-                    operation.roomId = game->id;
-                    operation.players = game->players;
-                    sendOperation(operation, fd);
-                }
                 break;
             }
             case LEAVE_ROOM : {
@@ -346,8 +284,7 @@ int handle_message(int clientfd) {
         if (operation.operationType == JOIN_ROOM) {
             //获取创建房间的消息队列,发送消息
             msgsnd(server.queue_id, &m, sizeof(OP), IPC_NOWAIT);
-        }else
-        {
+        } else {
             int queue_id = server.roomId_msgId[operation.roomId];
             msgsnd(queue_id, &m, sizeof(OP), IPC_NOWAIT);
         }
@@ -370,8 +307,9 @@ Operation json2operation(const char *json_text) {
     return op;
 }
 
-void* join_handler(void* arg);
-void* msg_handler(void* arg);
+void *join_handler(void *arg);
+
+void *msg_handler(void *arg);
 
 //服务器改造，架构：epoll 监听到后，将消息放入队列，程池中的线程处理消息
 //然后将结果放入队列，然后由epoll监听到后，将结果发送给客户端
@@ -446,26 +384,99 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void* join_handler(void* arg)
-{
-    while (true)
-    {
+void *join_handler(void *arg) {
+    while (true) {
         msg m;
-        int res=msgrcv(server.queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
-        if (res == -1)
-        {
+        int res = msgrcv(server.queue_id, &m, sizeof(OP), JOIN_ROOM, 0);
+        if (res == -1) {
             perror("msgrcv");
             exit(-1);
         }
-        Operation op ;
-        op.operationType = m.op.operationType;
-        op.playerId = m.op.playerId;
+        Operation o;
+        o.operationType = m.op.operationType;
+        o.playerId = m.op.playerId;
         int clientfd = m.op.clientFd;
+        server.playerid_fd[o.playerId] = clientfd;
+        bool isFinded;
+        for (auto &item: server.rooms) {
+            if (item.second->players.size() < 4) {
+                //将该用户加入房间，需要根据用户信息创建一个player
+                Player player = Player();
+                player.id = o.playerId;
+                item.second->players.push_back(player);
+                isFinded = true;
+                //检查是否到了四个人
+                if (item.second->players.size() == 2) {
+                    //开始游戏,需要初始化游戏,并且返回初始化信息
+                    item.second->initGraph();
+                    //返回初始化信息
+                    Operation operation = Operation();
+                    operation.operationType = GAME_START;
+                    operation.players = item.second->players;
 
+                    //将所有的房间地块信息返回，作为初始化地图数据
+                    operation.blocks = vector<Block>();
+                    for (int i = 0; i < item.second->height; ++i) {
+                        for (int j = 0; j < item.second->width; ++j) {
+                            operation.blocks.push_back(item.second->blocks[i][j]);
+                        }
+                    }
+                    operation.roomId = item.second->id;
+                    //广播给所有人
+                    for (auto &p: item.second->players) {
+                        sendOperation(operation, server.playerid_fd[p.id]);
+                    }
 
+                } else {
+                    //返回加入成功信息，对于当前房间内其他玩家，是有人加入了，对于刚加入的玩家，是加入成功
+                    Operation operation = Operation();
+                    for (auto &p: item.second->players) {
+                        if (p.id == o.playerId) {
+                            operation.operationType = JOIN_SUCCESS;
+                            operation.players = item.second->players;
+                            operation.roomId = item.second->id;
+                            sendOperation(operation, server.playerid_fd[p.id]);
+                        } else {
+                            operation.operationType = JOIN_ROOM;
+                            sendOperation(operation, server.playerid_fd[p.id]);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        if (!isFinded) {
+            //创建一个房间,还需要创建对应的消息队列以及启动新的线程
+            Game *game = new Game();
+            Player player = Player();
+            player.id = o.playerId;
+            game->players.push_back(player);
+            server.rooms[game->id] = game;
+            //返回加入成功信息
+            Operation operation = Operation();
+            operation.operationType = JOIN_SUCCESS;
+            operation.roomId = game->id;
+            operation.players = game->players;
+            int *buf = (int*)malloc(sizeof(int));
+            *buf =  game->id;
 
-
-
-
+            int room_queue_id = msgget(game->id, IPC_CREAT | 0666);
+            if (room_queue_id == -1) {
+                perror("msgget");
+                exit(-1);
+            }
+            server.roomId_msgId[game->id] = room_queue_id;
+            pthread_t tid;
+            pthread_create(&tid, NULL, msg_handler, buf);
+            sendOperation(operation, clientfd);
+        }
     }
+}
+
+void *msg_handler(void *arg) {
+
+
+
+
+
 }
