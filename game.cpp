@@ -434,6 +434,7 @@ Operation *Game::handle_message(Operation o) {
                     } else {
                         op->message = "human win!";
                     }
+                    return op;
                 }
             } else {
                 op->blocks.push_back(*block);

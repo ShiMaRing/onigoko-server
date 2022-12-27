@@ -30,10 +30,10 @@ const int DEAD = 10;
 
 const int initLighting = 2;
 const int initMines = 1;
-const int GraphWith = 67;
-const int GraphHeight = 37;
-const int ALL_KEYS_NUM = 6;
-const int NEEDED_FOUND_KEYS = 4;
+const int GraphWith = 43;
+const int GraphHeight = 21;
+const int ALL_KEYS_NUM = 8;
+const int NEEDED_FOUND_KEYS = 2;
 
 const int USER_COUNT=4;
 
