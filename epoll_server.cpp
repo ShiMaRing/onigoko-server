@@ -120,11 +120,13 @@ public:
 
     void leaveRoom(const uint32_t i) {
         //离开房间
+        //加锁
+        pthread_mutex_lock(&myMutex);
         for (auto it = rooms.begin(); it != rooms.end(); it++) {
             bool isFinded = false;
             for (auto it2 = it->second->players.begin(); it2 != it->second->players.end(); it2++) {
                 if (it2->id == i) {
-
+                    sem_wait(&it->second->sem);
                     isFinded = true;
                     bool isGameStart = false;
                     if (it->second->players.size() == 2) {
@@ -134,7 +136,9 @@ public:
                     if (it->second->players.size() == 1) {
                         it->second->players.erase(it2);
                         rooms.erase(it);
+                        sem_post(&it->second->sem);
                         free(it->second);
+                        pthread_mutex_unlock(&myMutex);//解锁
                         break;
                     }
 
@@ -146,10 +150,13 @@ public:
                             operation.roomId = it->second->id;
 
                             it->second->players.erase(it2);
+                            pthread_mutex_unlock(&myMutex);//解锁
 
                             for (auto &p: it->second->players) {
                                 sendOperation(operation, playerid_fd[p.id]);
                             }
+                            sem_post(&it->second->sem);
+
                             return;
                         } else {
                             //死亡人数+1
@@ -161,9 +168,12 @@ public:
                                 operation.message = "Ghost win!";
                                 operation.roomId = it->second->id;
                                 it->second->players.erase(it2);
+                                pthread_mutex_unlock(&myMutex);//解锁
+
                                 for (auto &p: it->second->players) {
                                     sendOperation(operation, playerid_fd[p.id]);
                                 }
+                                sem_post(&it->second->sem);
                                 //释放资源
                                 return;
                             } else {
@@ -178,13 +188,17 @@ public:
 
                                 it->second->players.erase(it2);
 
+                                pthread_mutex_unlock(&myMutex);//解锁
+
                                 for (auto &p: it->second->players) {
                                     sendOperation(operation, playerid_fd[p.id]);
                                 }
+                                sem_post(&it->second->sem);
                                 return;
                             }
                         }
                     } else {
+                        pthread_mutex_unlock(&myMutex);//解锁
                         //通知其他人，有人离开房间
                         Operation operation = Operation();
                         operation.operationType = LEAVE_ROOM;
@@ -196,15 +210,16 @@ public:
                         for (auto &p: it->second->players) {
                             sendOperation(operation, playerid_fd[p.id]);
                         }
+                        sem_post(&it->second->sem);
                         return;
                     }
-                    break;
                 }
             }
             if (isFinded) {
                 break;
             }
         }
+
     };
 
 };
@@ -508,6 +523,8 @@ void *msg_handler(void *arg) {
         switch (o.operationType) {
             case LEAVE_ROOM : {
                 //离开房间
+                //加锁
+                pthread_mutex_lock(&server.myMutex);
                 Game *game = server.rooms[o.roomId];
                 //信号量保护
                 sem_wait(&game->sem);
@@ -516,6 +533,7 @@ void *msg_handler(void *arg) {
                         game->players.erase(it);
                         //释放文件描述符
                         server.playerid_fd.erase(o.playerId);
+                        pthread_mutex_unlock(&server.myMutex);
                         break;
                     }
                 }
@@ -523,8 +541,9 @@ void *msg_handler(void *arg) {
                 if (game->players.empty()) {
                     server.rooms.erase(o.roomId);
                     free(game);
+                    pthread_mutex_unlock(&server.myMutex);
                 } else {
-                    //如果房间内还有人，就通知其他人
+                    pthread_mutex_unlock(&server.myMutex);
                     Operation operation = Operation();
                     operation.operationType = LEAVE_ROOM;
                     operation.playerId = o.playerId;
@@ -537,8 +556,10 @@ void *msg_handler(void *arg) {
                 break;
             }
             default: {
+                pthread_mutex_lock(&server.myMutex);
                 //根据玩家的id号，找到对应的房间，交给房间来处理，房间会返回block，server负责广播，前端会处理剩下的逻辑
                 Game &game = *server.rooms[o.roomId];
+                pthread_mutex_unlock(&server.myMutex);
                 //信号量保护
                 sem_wait(&game.sem);
                 Operation *op = game.handle_message(o);
